@@ -21,6 +21,8 @@ export class ApprovalPending extends Data.TaggedError("ApprovalPending")<{ reado
 export class ApprovalRejected extends Data.TaggedError("ApprovalRejected")<{ readonly runId: string }> {}
 export class ApprovalStale extends Data.TaggedError("ApprovalStale")<{ readonly runId: string; readonly reason: string }> {}
 
+const decodeRecommendation = Schema.decodeUnknownEffect(Recommendation)
+
 export class AgentHarness extends Context.Service<AgentHarness, {
   readonly propose: (attentionId: string) => Effect.Effect<RunRecord, unknown>
   readonly executeApproved: (runId: string) => Effect.Effect<unknown, unknown>
@@ -82,7 +84,7 @@ export const layer = Layer.effect(
         if (approval.status === "pending") return yield* new ApprovalPending({ runId })
         if (approval.status === "rejected") return yield* new ApprovalRejected({ runId })
         const principal = yield* directory.get(run.principalId)
-        const recommendation = yield* Schema.decodeUnknown(Recommendation)(JSON.parse(run.recommendationJson))
+        const recommendation = yield* decodeRecommendation(JSON.parse(run.recommendationJson))
         const currentGate = yield* gate.evaluate(principal, recommendation)
         if (currentGate === null || currentGate.planHash !== approval.planHash) return yield* new ApprovalStale({ runId, reason: "The approved plan no longer matches current policy." })
         if (approval.reviewerId !== currentGate.assignedApproverId) return yield* new ApprovalStale({ runId, reason: `Current policy requires ${currentGate.assignedApproverId}, but ${approval.reviewerId} approved the plan.` })
