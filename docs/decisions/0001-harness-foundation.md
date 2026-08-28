@@ -7,7 +7,7 @@
 
 This repository is a three-day implementation challenge for an extendable enterprise agent harness. The submission should optimize for a small, credible system whose behavior can be defended under review rather than for feature breadth.
 
-The near-term goal is to submit a strong challenge implementation while keeping the architecture credible for an anticipated RealTruck deployment in Guadalajara. That makes implementation speed important, but not at the expense of clear system boundaries or durable behavior.
+The near-term goal is to submit a strong challenge implementation while keeping the architecture credible for a RealTruck deployment in Guadalajara. That makes implementation speed important, but not at the expense of clear system boundaries or durable behavior.
 
 ## Decisions
 
@@ -37,9 +37,9 @@ Scenario B intentionally exercises the bounded free-form tool path so both execu
 
 ### Enterprise model
 
-Use the fictional company name `RealTruck` and place the modeled operation in Guadalajara, Mexico.
+Model the demo organization as `RealTruck` and place the modeled operation in Guadalajara, Mexico.
 
-Other people, suppliers, parts, messages, production lines, and noise data may be fictional but should read like restrained enterprise data rather than synthetic demo filler.
+People, suppliers, parts, messages, production lines, and noise records created for the challenge are synthetic demo data. They should read like restrained enterprise data rather than synthetic filler and should not be presented as facts about RealTruck's actual systems or employees.
 
 ### CLI experience
 
