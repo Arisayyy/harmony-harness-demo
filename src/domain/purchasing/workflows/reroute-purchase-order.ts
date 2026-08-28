@@ -26,10 +26,10 @@ const nextTuesday = (date: string) => {
 }
 
 export const ReroutePurchaseOrderWorkflow = Workflow.make("PurchasingRerouteV1", {
-  payload: { principalId: Schema.String, partId: Schema.String, originalPoId: Schema.String, productionOrderId: Schema.String, alternateSupplierId: Schema.String, quantity: Schema.Number },
+  payload: { runId: Schema.String, principalId: Schema.String, partId: Schema.String, originalPoId: Schema.String, productionOrderId: Schema.String, alternateSupplierId: Schema.String, quantity: Schema.Number },
   success: RerouteWorkflowResult,
   error: RerouteWorkflowError,
-  idempotencyKey: ({ originalPoId, productionOrderId }) => `${originalPoId}:${productionOrderId}`
+  idempotencyKey: ({ runId, originalPoId, productionOrderId }) => `${runId}:${originalPoId}:${productionOrderId}`
 })
 
 export const layer = ReroutePurchaseOrderWorkflow.toLayer(Effect.fn("PurchasingRerouteV1.run")(function*(payload) {
