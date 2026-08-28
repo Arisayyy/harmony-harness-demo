@@ -1,9 +1,11 @@
-import { Context, Data, Effect, Exit, Layer } from "effect"
+import { Context, Data, Effect, Exit, Layer, Option } from "effect"
 import { DurableDeferred } from "effect/unstable/workflow"
 import { WorkflowEngine } from "effect/unstable/workflow/WorkflowEngine"
 import type { Recommendation } from "../../agent/planning/recommendation"
+import { AuditLog } from "../../audit/service/audit-log"
 import type { GateApproval } from "../../authorization/policy/gate"
 import type { Principal } from "../../authorization/permissions/principal"
+import { RunRepository } from "../../memory/durable/run-repository"
 import { BusinessClock } from "../../scheduling/model/business-clock"
 import { ApprovalDecision, ApprovalRecord } from "../model/approval"
 import { ApprovalRepository } from "./approval-repository"
@@ -20,6 +22,8 @@ export const layer = Layer.effect(
   ApprovalService,
   Effect.gen(function*() {
     const repository = yield* ApprovalRepository
+    const runs = yield* RunRepository
+    const audit = yield* AuditLog
     const clock = yield* BusinessClock
     const engine = yield* WorkflowEngine
 
@@ -33,10 +37,15 @@ export const layer = Layer.effect(
       decide: Effect.fn("ApprovalService.decide")(function*(approvalId, reviewerId, decision, reason) {
         const approval = yield* repository.get(approvalId)
         if (approval.assignedApproverId !== reviewerId) return yield* new ApprovalReviewerMismatch({ approvalId, expectedReviewerId: approval.assignedApproverId, actualReviewerId: reviewerId })
-        const executionId = yield* ApprovalWorkflow.executionId({ approvalId: approval.approvalId, runId: approval.runId, effectiveUserId: approval.effectiveUserId, requestedApproverId: approval.requestedApproverId, assignedApproverId: approval.requestedApproverId, planHash: approval.planHash, planJson: approval.planJson, policyReason: approval.policyReason, createdAt: approval.createdAt })
+        const payload = { approvalId: approval.approvalId, runId: approval.runId, effectiveUserId: approval.effectiveUserId, requestedApproverId: approval.requestedApproverId, assignedApproverId: approval.requestedApproverId, planHash: approval.planHash, planJson: approval.planJson, policyReason: approval.policyReason, createdAt: approval.createdAt }
+        const executionId = yield* ApprovalWorkflow.executionId(payload)
         const decidedAt = yield* clock.now
+        const value = new ApprovalDecision({ decision, reviewerId, reason, decidedAt })
         const token = DurableDeferred.tokenFromExecutionId(ApprovalDecisionSignal, { workflow: ApprovalWorkflow, executionId })
-        yield* DurableDeferred.done(ApprovalDecisionSignal, { token, exit: Exit.succeed(new ApprovalDecision({ decision, reviewerId, reason, decidedAt })) }).pipe(Effect.provideService(WorkflowEngine, engine))
+        yield* DurableDeferred.done(ApprovalDecisionSignal, { token, exit: Exit.succeed(value) }).pipe(Effect.provideService(WorkflowEngine, engine))
+        yield* ApprovalWorkflow.execute(payload).pipe(Effect.provideService(WorkflowEngine, engine))
+        const run = yield* runs.get(approval.runId).pipe(Effect.option)
+        yield* audit.append({ runId: approval.runId, traceId: Option.isSome(run) ? run.value.traceId : approval.runId, eventType: "approval.decided", actor: `user:${reviewerId}`, effectiveUserId: approval.effectiveUserId, evidence: [], data: { approvalId, decision, reviewerId, reason } })
       })
     })
   })

@@ -1,5 +1,7 @@
-import { Context, Data, Effect, Layer } from "effect"
+import { Context, Data, Effect, Layer, Option } from "effect"
+import { AuditLog } from "../../audit/service/audit-log"
 import { PrincipalDirectory } from "../../authorization/permissions/principal-directory"
+import { RunRepository } from "../../memory/durable/run-repository"
 import { BusinessClock } from "../../scheduling/model/business-clock"
 import { CalendarProvider } from "../../../integrations/calendar/calendar-provider"
 import { ApprovalRepository } from "../service/approval-repository"
@@ -23,6 +25,8 @@ export const layer = Layer.effect(
     const directory = yield* PrincipalDirectory
     const calendar = yield* CalendarProvider
     const clock = yield* BusinessClock
+    const runs = yield* RunRepository
+    const audit = yield* AuditLog
 
     return BackupRouting.of({
       routeIfOutTomorrow: Effect.fn("BackupRouting.routeIfOutTomorrow")(function*(approvalId) {
@@ -34,7 +38,10 @@ export const layer = Layer.effect(
         const tomorrow = nextDate(now)
         const events = yield* calendar.listRange(approver, approver.userId, `${tomorrow}T00:00:00-06:00`, `${tomorrow}T23:59:59-06:00`)
         if (!events.some((event) => event.outOfOffice)) return false
-        yield* approvals.route(approval.approvalId, approver.userId, approver.backupApproverId, "Primary approver is out of office tomorrow at the end-of-day approval deadline.", now)
+        const reason = "Primary approver is out of office tomorrow at the end-of-day approval deadline."
+        yield* approvals.route(approval.approvalId, approver.userId, approver.backupApproverId, reason, now)
+        const run = yield* runs.get(approval.runId).pipe(Effect.option)
+        yield* audit.append({ runId: approval.runId, traceId: Option.isSome(run) ? run.value.traceId : approval.runId, eventType: "approval.routed", actor: "policy", effectiveUserId: approval.effectiveUserId, evidence: [], data: { approvalId, fromApproverId: approver.userId, toApproverId: approver.backupApproverId, reason } })
         return true
       })
     })
