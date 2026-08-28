@@ -1,5 +1,5 @@
 import * as BunServices from "@effect/platform-bun/BunServices"
-import { Effect, Either } from "effect"
+import { Effect } from "effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { describe, expect, it } from "vitest"
 import { ReroutePurchaseOrderWorkflow } from "../src/domain/purchasing/workflows/reroute-purchase-order"
@@ -17,8 +17,13 @@ import { runCrashResumeFixture } from "../src/scenarios/failures/crash-resume"
 
 process.env.DATABASE_PATH = `.data/harmony-test-${process.pid}.db`
 
-const run = <A, E>(effect: Effect.Effect<A, E, any>) => Effect.runPromise(effect.pipe(Effect.provide(layer)))
-const setup = () => run(migrate.pipe(Effect.zipRight(resetDemo)))
+const run = <A, E>(effect: Effect.Effect<A, E, any>) =>
+  Effect.runPromise(Effect.scoped(effect.pipe(Effect.provide(layer))) as Effect.Effect<A, E>)
+
+const setup = () => run(Effect.gen(function*() {
+  yield* migrate
+  yield* resetDemo
+}))
 
 const approvedReroute = (supplierId: string) => new EnterWorkflow({
   _tag: "EnterWorkflow",
@@ -53,15 +58,20 @@ describe("enterprise harness safety and durability", () => {
       const directory = yield* PrincipalDirectory
       const gate = yield* Gate
       const principal = yield* directory.get("u-101")
-      return yield* gate.evaluate(principal, approvedReroute("S-Q")).pipe(Effect.either)
+      return yield* gate.evaluate(principal, approvedReroute("S-Q")).pipe(
+        Effect.match({
+          onFailure: (error) => ({ failed: true as const, reasons: error.reasons }),
+          onSuccess: () => ({ failed: false as const, reasons: [] as ReadonlyArray<string> })
+        })
+      )
     }))
-    expect(Either.isLeft(result)).toBe(true)
-    if (Either.isLeft(result)) expect(result.left.reasons.join(" ")).toContain("not approved")
+    expect(result.failed).toBe(true)
+    expect(result.reasons.join(" ")).toContain("not approved")
   })
 
   it("rechecks scopes at the tool boundary after policy approval", async () => {
     await setup()
-    const result = await run(Effect.gen(function*() {
+    const denied = await run(Effect.gen(function*() {
       const directory = yield* PrincipalDirectory
       const runtime = yield* ToolRuntime
       const principal = yield* directory.get("u-101")
@@ -71,9 +81,9 @@ describe("enterprise harness safety and durability", () => {
         principal: revoked,
         idempotencyKey: "test:revoked-scope",
         input: { poId: "PO-SHOULD-NOT-EXIST", partId: "RT-4471", supplierId: "S-Z", qty: 1, unitPrice: 46.5, orderedDate: "2026-09-02", promisedDate: "2026-09-04" }
-      }).pipe(Effect.either)
+      }).pipe(Effect.match({ onFailure: () => true, onSuccess: () => false }))
     }))
-    expect(Either.isLeft(result)).toBe(true)
+    expect(denied).toBe(true)
   })
 
   it("replays the same workflow run idempotently but allows a new agent run", async () => {
@@ -102,6 +112,6 @@ describe("enterprise harness safety and durability", () => {
   }, 20_000)
 
   it("survives a real SIGKILL and resumes in a fresh Bun process without duplicate PO creation", async () => {
-    await Effect.runPromise(runCrashResumeFixture.pipe(Effect.provide(BunServices.layer)))
+    await Effect.runPromise(Effect.scoped(runCrashResumeFixture.pipe(Effect.provide(BunServices.layer))))
   }, 30_000)
 })
