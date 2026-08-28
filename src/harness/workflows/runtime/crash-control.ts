@@ -10,7 +10,7 @@ export const layerProcessKill = (activityName: string) => Layer.succeed(
   CrashControl,
   CrashControl.of({
     afterActivity: (name) => name === activityName
-      ? Effect.sync(() => process.kill(process.pid, "SIGKILL"))
+      ? Effect.asVoid(Effect.sync(() => process.kill(process.pid, "SIGKILL")))
       : Effect.void
   })
 )

@@ -29,7 +29,7 @@ export const layer = Layer.effect(
       const response = yield* languageModel.generateObject({
         objectName: "enterprise_agent_recommendation",
         schema: Recommendation,
-        prompt: `${system}\n\nAttention item:\n${JSON.stringify(input.attention)}\n\nEvidence snapshots:\n${JSON.stringify(input.evidence)}`
+        prompt: `${system}\n\nAttention kind:\n${input.attentionKind}\n\nAttention item:\n${JSON.stringify(input.attention)}\n\nEvidence snapshots:\n${JSON.stringify(input.evidence)}`
       })
       const end = yield* Clock.monotonicTimeNanos
       const allowed = new Set(input.evidence.map((evidence) => evidence.sourceId))
