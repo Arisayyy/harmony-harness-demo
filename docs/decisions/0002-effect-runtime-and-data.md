@@ -23,51 +23,55 @@ Prefer Effect abstractions whenever they meaningfully model the problem:
 - typed failures instead of thrown application errors
 - `Schedule` for retry and repeat policies
 - fibers and structured concurrency where work is genuinely concurrent
-- Effect clocks and time abstractions so the demo clock can be deterministic
+- Effect time abstractions and durable workflow clocks for deterministic and deferred work
 - scoped resources for database and runtime lifecycle
 - structured logging, spans, annotations, and metrics for observability
-- Effect test utilities where they improve deterministic tests
+- `effect/unstable/cli` for the CLI surface
+- `effect/unstable/process` where process control is part of the restart demo
+- `@effect/vitest` for Effect-native tests
 
-Do not force a functional abstraction where it makes the code less legible, but treat ordinary Promise-based TypeScript as the exception rather than the default.
+Ordinary Promise-based TypeScript is the exception rather than the default. Do not introduce a non-Effect abstraction when Effect already models the problem cleanly.
 
 ### Services
 
 Use Effect v4 `Context.Service` boundaries with explicit Layers.
 
-Providers, repositories, policy, approvals, planner, workflow runtime, scheduler, audit, telemetry, clock, and model access should be replaceable through the Effect environment rather than a hand-built dependency-injection container.
+Providers, repositories, policy, approvals, planner, workflow coordination, audit, telemetry, clock, and model access should be replaceable through the Effect environment rather than a hand-built dependency-injection container.
 
 ### SQLite
 
 Use one SQLite database for the demo.
 
-Use `@effect/sql-sqlite-bun`, which is backed by Bun's `bun:sqlite`, instead of reaching for `bun:sqlite` directly throughout the application. This preserves the accepted choice of Bun + SQLite while keeping database work inside the Effect ecosystem.
+Use `@effect/sql-sqlite-bun`, backed by Bun's `bun:sqlite`, instead of reaching for `bun:sqlite` directly throughout the application.
 
 Do not add an ORM.
 
-Repository modules own SQL and expose typed Effect programs to the rest of the application.
+Repository modules own application SQL and expose typed Effect programs. Effect Workflow's SQL-backed single-runner infrastructure may use the same SQLite database for durable workflow mailbox and reply state while remaining logically separate from application tables.
 
-The database holds the fake enterprise systems and harness durability state, including ERP data, mail, calendar, users and scopes, attention items, approvals, workflow instances, step state, scheduled work, idempotency records, and append-only audit events.
+The application tables hold fake ERP, mail, calendar, users and scopes, attention items, approvals, benchmark runs, and the append-only audit ledger.
 
-Fake ERP, Mail, and Calendar still expose distinct provider services even though they share a physical SQLite database. The harness must not know or depend on that implementation detail.
+Fake ERP, Mail, and Calendar expose distinct provider services even though they share a physical SQLite database. The harness must not know or depend on that implementation detail.
 
 ### Authorization at boundaries
 
 Read filtering is enforced inside each provider. A caller cannot ask a provider for data outside the effective user's read scopes and receive it for later filtering.
 
-Write scopes are enforced inside tools even when the plan has already passed the gate. The gate provides policy authorization; the tool boundary provides defense in depth.
+Write scopes are enforced inside tools even when a plan has already passed the gate. The gate provides policy authorization; the tool boundary provides defense in depth.
 
-Keep the permission model intentionally small: explicit per-system scopes plus, if useful, one restrained resource-level constraint to demonstrate where real deployments would extend the model.
+Keep the permission model intentionally small: explicit per-system scopes plus, if useful, one restrained resource-level constraint to demonstrate where a real deployment would extend the model.
 
 ### OpenRouter and Effect AI
 
-Use OpenRouter through Effect's OpenRouter integration rather than a hand-written fetch client unless a concrete provider incompatibility forces a fallback.
+Use OpenRouter through Effect's AI integration rather than a hand-written fetch client unless a concrete provider incompatibility forces a fallback.
 
-The model is configurable through environment configuration, with GLM 5.3 Flash as the default target because it is inexpensive and supports agent-oriented workloads. Model output must cross a Schema-validated boundary before it can influence a gate, workflow, or tool.
+The model is configurable through environment configuration. The default model is `z-ai/glm-5.3-flash` because the challenge benefits more from inexpensive repeatable planner calls than from maximizing model cost.
 
-The application must remain functional enough for tests and deterministic failure cases without making network calls.
+Model output must cross a `Schema`-validated boundary before it can influence a gate, workflow, or tool.
+
+The application must remain testable and able to exercise deterministic failure cases without a network call.
 
 ## Consequences
 
-This repository will look more Effect-heavy than ordinary TypeScript code by design. Reviewers should be able to see typed environments, failures, validation, scheduling, concurrency, resource ownership, and tracing as one coherent runtime model rather than separate libraries glued together.
+This repository will look more Effect-heavy than ordinary TypeScript code by design. Reviewers should be able to see typed environments, failures, validation, durable execution, scheduling, concurrency, resource ownership, CLI composition, and tracing as one coherent runtime model rather than separate libraries glued together.
 
-Because Effect v4 is beta, dependency versions should be pinned and the README should state that production adoption would require an upgrade policy and compatibility testing.
+Because Effect v4 and several selected modules are beta or unstable, dependency versions are pinned. The README and design doc must state that production adoption would require an explicit upgrade and compatibility policy.
