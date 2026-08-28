@@ -23,6 +23,10 @@ export class ErpProvider extends Context.Service<ErpProvider, {
   readonly getPart: (principal: Principal, partId: string) => Effect.Effect<Part, ProviderError>
   readonly getPurchaseOrder: (principal: Principal, poId: string) => Effect.Effect<PurchaseOrder, ProviderError>
   readonly getProductionOrder: (principal: Principal, productionOrderId: string) => Effect.Effect<ProductionOrder, ProviderError>
+  readonly listParts: (principal: Principal) => Effect.Effect<ReadonlyArray<Part>, ProviderError>
+  readonly listOpenPurchaseOrders: (principal: Principal) => Effect.Effect<ReadonlyArray<PurchaseOrder>, ProviderError>
+  readonly listPlannedProductionOrders: (principal: Principal) => Effect.Effect<ReadonlyArray<ProductionOrder>, ProviderError>
   readonly listSuppliersForPart: (principal: Principal, partId: string) => Effect.Effect<ReadonlyArray<Supplier>, ProviderError>
   readonly listQualityLots: (principal: Principal, partId: string) => Effect.Effect<ReadonlyArray<QualityLot>, ProviderError>
+  readonly listHeldQualityLots: (principal: Principal) => Effect.Effect<ReadonlyArray<QualityLot>, ProviderError>
 }>()("harmony/integrations/ErpProvider") {}

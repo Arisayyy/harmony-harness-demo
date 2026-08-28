@@ -1,5 +1,4 @@
 import { Schema } from "effect"
-import { EvidenceSnapshot } from "../../audit/model/audit-event"
 
 export class ReroutePurchaseOrderParameters extends Schema.Class<ReroutePurchaseOrderParameters>("ReroutePurchaseOrderParameters")({
   partId: Schema.String,
@@ -35,27 +34,27 @@ export class FlagShortageAction extends Schema.Class<FlagShortageAction>("FlagSh
 export const ProposedAction = Schema.Union([ReallocateLotAction, NotifyProductionAction, FlagShortageAction])
 export type ProposedAction = typeof ProposedAction.Type
 
-export class NoAction extends Schema.Class<NoAction>("NoAction")({
-  _tag: Schema.Literal("NoAction"),
+const RecommendationCommon = {
   rationale: Schema.String,
   confidence: Schema.Number,
-  evidence: Schema.Array(EvidenceSnapshot)
+  evidenceRefs: Schema.Array(Schema.String)
+}
+
+export class NoAction extends Schema.Class<NoAction>("NoAction")({
+  _tag: Schema.Literal("NoAction"),
+  ...RecommendationCommon
 }) {}
 
 export class EnterWorkflow extends Schema.Class<EnterWorkflow>("EnterWorkflow")({
   _tag: Schema.Literal("EnterWorkflow"),
   workflow: Schema.Literal("purchasing.reroute-po"),
-  rationale: Schema.String,
-  confidence: Schema.Number,
-  evidence: Schema.Array(EvidenceSnapshot),
+  ...RecommendationCommon,
   parameters: ReroutePurchaseOrderParameters
 }) {}
 
 export class ProposedActions extends Schema.Class<ProposedActions>("ProposedActions")({
   _tag: Schema.Literal("ProposedActions"),
-  rationale: Schema.String,
-  confidence: Schema.Number,
-  evidence: Schema.Array(EvidenceSnapshot),
+  ...RecommendationCommon,
   actions: Schema.Array(ProposedAction)
 }) {}
 
