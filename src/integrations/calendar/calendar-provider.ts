@@ -1,6 +1,6 @@
 import { Context, Effect, Schema } from "effect"
 import type { Principal } from "../../harness/authorization/permissions/principal"
-import type { ProviderDenied } from "../erp/erp-provider"
+import type { ProviderError } from "../erp/erp-provider"
 
 export class CalendarEvent extends Schema.Class<CalendarEvent>("CalendarEvent")({
   eventId: Schema.String,
@@ -13,5 +13,5 @@ export class CalendarEvent extends Schema.Class<CalendarEvent>("CalendarEvent")(
 }) {}
 
 export class CalendarProvider extends Context.Service<CalendarProvider, {
-  readonly listRange: (principal: Principal, ownerId: string, start: string, end: string) => Effect.Effect<ReadonlyArray<CalendarEvent>, ProviderDenied>
+  readonly listRange: (principal: Principal, ownerId: string, start: string, end: string) => Effect.Effect<ReadonlyArray<CalendarEvent>, ProviderError>
 }>()("harmony/integrations/CalendarProvider") {}

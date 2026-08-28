@@ -11,10 +11,18 @@ export class ProviderDenied extends Data.TaggedError("ProviderDenied")<{
   readonly requiredScope: string
 }> {}
 
+export class ProviderNotFound extends Data.TaggedError("ProviderNotFound")<{
+  readonly provider: "erp" | "mail" | "calendar"
+  readonly entity: string
+  readonly id: string
+}> {}
+
+export type ProviderError = ProviderDenied | ProviderNotFound
+
 export class ErpProvider extends Context.Service<ErpProvider, {
-  readonly getPart: (principal: Principal, partId: string) => Effect.Effect<Part, ProviderDenied>
-  readonly getPurchaseOrder: (principal: Principal, poId: string) => Effect.Effect<PurchaseOrder, ProviderDenied>
-  readonly getProductionOrder: (principal: Principal, productionOrderId: string) => Effect.Effect<ProductionOrder, ProviderDenied>
-  readonly listSuppliersForPart: (principal: Principal, partId: string) => Effect.Effect<ReadonlyArray<Supplier>, ProviderDenied>
-  readonly listQualityLots: (principal: Principal, partId: string) => Effect.Effect<ReadonlyArray<QualityLot>, ProviderDenied>
+  readonly getPart: (principal: Principal, partId: string) => Effect.Effect<Part, ProviderError>
+  readonly getPurchaseOrder: (principal: Principal, poId: string) => Effect.Effect<PurchaseOrder, ProviderError>
+  readonly getProductionOrder: (principal: Principal, productionOrderId: string) => Effect.Effect<ProductionOrder, ProviderError>
+  readonly listSuppliersForPart: (principal: Principal, partId: string) => Effect.Effect<ReadonlyArray<Supplier>, ProviderError>
+  readonly listQualityLots: (principal: Principal, partId: string) => Effect.Effect<ReadonlyArray<QualityLot>, ProviderError>
 }>()("harmony/integrations/ErpProvider") {}
