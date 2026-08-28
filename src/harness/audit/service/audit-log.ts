@@ -4,7 +4,7 @@ import { AuditEvent } from "../model/audit-event"
 import { AuditRepository } from "../repository/audit-repository"
 
 export class AuditLog extends Context.Service<AuditLog, {
-  readonly append: (event: Omit<AuditEvent, "eventId" | "occurredAt">) => Effect.Effect<void>
+  readonly append: (event: Omit<AuditEvent, "eventId" | "occurredAt">) => Effect.Effect<void, unknown>
 }>()("harmony/audit/AuditLog") {}
 
 export const layer = Layer.effect(

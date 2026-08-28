@@ -1,4 +1,4 @@
-import { Console, Crypto, Effect, Either, Schema } from "effect"
+import { Console, Crypto, Effect, Schema } from "effect"
 import { SupplyRiskDetector } from "../domain/purchasing/detectors/supply-risk-detector"
 import { QualityHoldDetector } from "../domain/quality/detectors/quality-hold-detector"
 import { AgentHarness } from "../harness/agent/execution/agent-harness"
@@ -19,8 +19,9 @@ import { deliverSupplierDelay } from "./scenario-a/events"
 import { placeQualityHold } from "./scenario-b/events"
 import { runCrashResumeFixture } from "./failures/crash-resume"
 
+const decodeRecommendation = Schema.decodeUnknownEffect(Recommendation)
 const pause = Effect.sleep("250 millis")
-const countdown = (label: string) => Effect.forEach([3, 2, 1], (value) => Console.log(`  ${label} ${value}`).pipe(Effect.zipRight(pause)), { discard: true })
+const countdown = (label: string) => Effect.forEach([3, 2, 1], (value) => Effect.gen(function*() { yield* Console.log(`  ${label} ${value}`); yield* pause }), { discard: true })
 
 const recommendationText = (recommendation: typeof Recommendation.Type) => recommendation._tag === "EnterWorkflow"
   ? `RT-4471 will likely cause production order 4812 to miss its scheduled start. Sierra Motion Components says PO-77812 will not reach Guadalajara until Tuesday. I can move the PO to Bajío Electromech and notify production. Want me to proceed?`
@@ -29,7 +30,6 @@ const recommendationText = (recommendation: typeof Recommendation.Type) => recom
 export const runDemo = Effect.gen(function*() {
   yield* migrate
   yield* resetDemo
-
   const directory = yield* PrincipalDirectory
   const purchasingDetector = yield* SupplyRiskDetector
   const qualityDetector = yield* QualityHoldDetector
@@ -53,17 +53,14 @@ export const runDemo = Effect.gen(function*() {
   yield* countdown("supplier email in")
   yield* deliverSupplierDelay
   yield* Console.log("mail                 M-001 received · PO-77812 slips to Guadalajara dock Tuesday 9/8")
-
   const purchasingItems = yield* purchasingDetector.scan(elena)
   const attention = purchasingItems[0]
   if (attention === undefined) return yield* Effect.die("Scenario A detector did not produce an attention item")
   yield* Console.log(`detector             ${attention.attentionId} · projected stockout intersects production order 4812`)
-
   const duplicate = yield* purchasingDetector.scan(elena)
   yield* Console.log(`dedupe               repeated detector scan created ${duplicate.length} duplicate attention items`)
-
   const scenarioARun = yield* harness.propose(attention.attentionId)
-  const scenarioARecommendation = yield* Schema.decodeUnknown(Recommendation)(JSON.parse(scenarioARun.recommendationJson))
+  const scenarioARecommendation = yield* decodeRecommendation(JSON.parse(scenarioARun.recommendationJson))
   yield* Console.log(`\nagent                ${recommendationText(scenarioARecommendation)}`)
 
   if (scenarioARun.approvalId === undefined) return yield* Effect.die("Scenario A did not request approval")
@@ -78,18 +75,7 @@ export const runDemo = Effect.gen(function*() {
 
   yield* clock.advanceTo("2026-09-02T17:00:00-06:00")
   const edgeApprovalId = yield* crypto.randomUUIDv4
-  yield* approvals.create(new ApprovalRecord({
-    approvalId: edgeApprovalId,
-    runId: "failure-backup-routing",
-    effectiveUserId: "u-101",
-    requestedApproverId: "u-101",
-    assignedApproverId: "u-101",
-    planHash: "backup-routing-fixture",
-    planJson: "{}",
-    policyReason: "Failure fixture: unanswered agent write approval",
-    status: "pending",
-    createdAt: "2026-09-02T16:30:00-06:00"
-  }))
+  yield* approvals.create(new ApprovalRecord({ approvalId: edgeApprovalId, runId: "failure-backup-routing", effectiveUserId: "u-101", requestedApproverId: "u-101", assignedApproverId: "u-101", planHash: "backup-routing-fixture", planJson: "{}", policyReason: "Failure fixture: unanswered agent write approval", status: "pending", createdAt: "2026-09-02T16:30:00-06:00" }))
   const routed = yield* backupRouting.routeIfOutTomorrow(edgeApprovalId)
   const routedApproval = yield* approvals.get(edgeApprovalId)
   yield* Console.log(`backup routing       ${routed ? `u-101 → ${routedApproval.assignedApproverId} because tomorrow is OOO` : "not routed"}`)
@@ -106,7 +92,7 @@ export const runDemo = Effect.gen(function*() {
   const qualityAttention = qualityItems[0]
   if (qualityAttention === undefined) return yield* Effect.die("Scenario B detector did not produce an attention item")
   const scenarioBRun = yield* harness.propose(qualityAttention.attentionId)
-  const scenarioBRecommendation = yield* Schema.decodeUnknown(Recommendation)(JSON.parse(scenarioBRun.recommendationJson))
+  const scenarioBRecommendation = yield* decodeRecommendation(JSON.parse(scenarioBRun.recommendationJson))
   yield* Console.log(`agent                ${scenarioBRecommendation.rationale}`)
   if (scenarioBRun.approvalId === undefined) return yield* Effect.die("Scenario B did not request approval")
   const scenarioBApproval = yield* approvals.get(scenarioBRun.approvalId)
@@ -115,17 +101,10 @@ export const runDemo = Effect.gen(function*() {
   yield* Console.log(`free-form path       bounded actions complete · ${JSON.stringify(scenarioBOutcome)}`)
 
   const revoked = new Principal({ ...elena, scopes: elena.scopes.filter((scope) => scope !== "erp:po:create") })
-  const denied = yield* runtime.execute({
-    tool: "erp.create-po",
-    principal: revoked,
-    idempotencyKey: "failure:revoked-scope",
-    input: { poId: "PO-SHOULD-NOT-EXIST", partId: "RT-4471", supplierId: "S-Z", qty: 1, unitPrice: 46.5, orderedDate: "2026-09-08", promisedDate: "2026-09-09" }
-  }).pipe(Effect.either)
-  yield* Console.log(`scope revocation     ${Either.isLeft(denied) ? "tool boundary denied write" : "unexpectedly allowed"}`)
-
+  const denied = yield* runtime.execute({ tool: "erp.create-po", principal: revoked, idempotencyKey: "failure:revoked-scope", input: { poId: "PO-SHOULD-NOT-EXIST", partId: "RT-4471", supplierId: "S-Z", qty: 1, unitPrice: 46.5, orderedDate: "2026-09-08", promisedDate: "2026-09-09" } }).pipe(Effect.match({ onFailure: () => true, onSuccess: () => false }))
+  yield* Console.log(`scope revocation     ${denied ? "tool boundary denied write" : "unexpectedly allowed"}`)
   yield* Console.log("\nFailure fixture      real process termination and workflow replay")
   yield* runCrashResumeFixture
-
   yield* Console.log("\nrecorded audit       artifacts/scenario-a.ndjson")
   yield* Console.log("demo complete\n")
 })

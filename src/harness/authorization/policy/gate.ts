@@ -19,7 +19,10 @@ export const layer = Layer.effect(
 
     const hashPlan = (plan: Recommendation) => Effect.gen(function*() {
       const bytes = new TextEncoder().encode(JSON.stringify(plan))
-      return Encoding.encodeHex(yield* crypto.digest("SHA-256", bytes))
+      const digest = yield* crypto.digest("SHA-256", bytes).pipe(
+        Effect.mapError(() => new GateDenied({ reasons: ["Unable to compute the immutable approval-plan hash."] }))
+      )
+      return Encoding.encodeHex(digest)
     })
 
     return Gate.of({
