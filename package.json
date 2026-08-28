@@ -1,0 +1,25 @@
+{
+  "name": "harmony-harness-demo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "demo": "bun run src/cli/main.ts demo",
+    "benchmark": "bun run src/cli/main.ts benchmark live",
+    "benchmark:replay": "bun run src/cli/main.ts benchmark replay",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@effect/ai-openrouter": "4.0.0-rc.112",
+    "@effect/platform-bun": "4.0.0-rc.112",
+    "@effect/sql-sqlite-bun": "4.0.0-rc.112",
+    "effect": "4.0.0-rc.112"
+  },
+  "devDependencies": {
+    "@effect/vitest": "4.0.0-rc.112",
+    "@types/bun": "^1.4.0",
+    "typescript": "^5.9.2",
+    "vitest": "4.1.11"
+  }
+}
