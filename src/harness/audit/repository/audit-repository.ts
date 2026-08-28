@@ -1,6 +1,5 @@
-import { Context, Crypto, Effect, Layer } from "effect"
+import { Context, Effect, Layer } from "effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
-import { BusinessClock } from "../../scheduling/model/business-clock"
 import { AuditEvent } from "../model/audit-event"
 
 export class AuditRepository extends Context.Service<AuditRepository, {
@@ -23,11 +22,3 @@ export const layer = Layer.effect(
     })
   })
 )
-
-export const appendNow = (event: Omit<AuditEvent, "eventId" | "occurredAt">) => Effect.gen(function*() {
-  const repository = yield* AuditRepository
-  const clock = yield* BusinessClock
-  const crypto = yield* Crypto.Crypto
-  const [occurredAt, eventId] = yield* Effect.all([clock.now, crypto.randomUUIDv4])
-  yield* repository.append(new AuditEvent({ ...event, eventId, occurredAt }))
-})
