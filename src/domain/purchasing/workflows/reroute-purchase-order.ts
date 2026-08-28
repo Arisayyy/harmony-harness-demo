@@ -14,9 +14,16 @@ import { NotifyProductionOutput } from "../tools/production-tools"
 
 export class RerouteWorkflowError extends Schema.Error<RerouteWorkflowError>("RerouteWorkflowError")({ _tag: Schema.tag("RerouteWorkflowError"), step: Schema.String, message: Schema.String }) {}
 export class RerouteWorkflowResult extends Schema.Class<RerouteWorkflowResult>("RerouteWorkflowResult")({ replacementPoId: Schema.String, scheduledWorkId: Schema.String }) {}
-export class QualifiedSupplier extends Schema.Class<QualifiedSupplier>("QualifiedSupplier")({ supplier: Supplier, orderedDate: Schema.String, promisedDate: Schema.String }) {}
+export class QualifiedSupplier extends Schema.Class<QualifiedSupplier>("QualifiedSupplier")({ supplier: Supplier, orderedDate: Schema.String, promisedDate: Schema.String, followUpDate: Schema.String }) {}
 
 const failStep = (step: string) => (error: unknown) => new RerouteWorkflowError({ step, message: String(error) })
+const nextTuesday = (date: string) => {
+  const value = new Date(`${date}T12:00:00Z`)
+  let delta = (2 - value.getUTCDay() + 7) % 7
+  if (delta === 0) delta = 7
+  value.setUTCDate(value.getUTCDate() + delta)
+  return value.toISOString().slice(0, 10)
+}
 
 export const ReroutePurchaseOrderWorkflow = Workflow.make("PurchasingRerouteV1", {
   payload: { principalId: Schema.String, partId: Schema.String, originalPoId: Schema.String, productionOrderId: Schema.String, alternateSupplierId: Schema.String, quantity: Schema.Number },
@@ -58,13 +65,12 @@ export const layer = ReroutePurchaseOrderWorkflow.toLayer(Effect.fn("PurchasingR
       const arrival = new Date(`${orderedDate}T12:00:00Z`)
       arrival.setUTCDate(arrival.getUTCDate() + supplier.leadTimeDays)
       if (arrival.getTime() > new Date(production.scheduledStart).getTime()) return yield* new RerouteWorkflowError({ step: "confirm-lead-time", message: `Supplier ${supplier.supplierId} cannot arrive before ${production.scheduledStart}` })
-      return new QualifiedSupplier({ supplier, orderedDate, promisedDate: arrival.toISOString().slice(0, 10) })
+      return new QualifiedSupplier({ supplier, orderedDate, promisedDate: arrival.toISOString().slice(0, 10), followUpDate: nextTuesday(orderedDate) })
     })
   })
 
   const price = qualified.supplier.pricing.find((entry) => entry.partId === payload.partId)
   if (price === undefined) return yield* new RerouteWorkflowError({ step: "create-new-po", message: "Approved supplier price disappeared before execution" })
-
   const suffix = instance.executionId.replace(/[^a-zA-Z0-9]/g, "").slice(-10).toUpperCase()
   const replacementPoId = `PO-R-${suffix}`
 
@@ -124,7 +130,7 @@ export const layer = ReroutePurchaseOrderWorkflow.toLayer(Effect.fn("PurchasingR
     execute: Effect.gen(function*() {
       const principal = yield* directory.get(payload.principalId).pipe(Effect.mapError(failStep("schedule-arrival-check")))
       const idempotencyKey = yield* Activity.idempotencyKey("schedule-arrival-check")
-      const result = yield* runtime.execute({ tool: "schedule.arrival-check", principal, idempotencyKey, input: { workId, runAt: `${qualified.promisedDate}T09:00:00-06:00`, poId: replacementPoId, partId: payload.partId, productionOrderId: payload.productionOrderId, principalId: payload.principalId } }).pipe(Effect.mapError(failStep("schedule-arrival-check")))
+      const result = yield* runtime.execute({ tool: "schedule.arrival-check", principal, idempotencyKey, input: { workId, runAt: `${qualified.followUpDate}T09:00:00-06:00`, poId: replacementPoId, partId: payload.partId, productionOrderId: payload.productionOrderId, principalId: payload.principalId } }).pipe(Effect.mapError(failStep("schedule-arrival-check")))
       return yield* Schema.decodeUnknown(ScheduleArrivalCheckOutput)(result).pipe(Effect.mapError(failStep("schedule-arrival-check")))
     })
   }).pipe(ReroutePurchaseOrderWorkflow.withCompensation((result) => Effect.gen(function*() {

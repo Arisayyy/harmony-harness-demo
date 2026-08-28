@@ -45,9 +45,9 @@ export const resetDemo = Effect.gen(function*() {
     yield* sql`INSERT INTO purchase_orders VALUES (${"PO-77901"}, ${"RT-2210"}, ${"S-Z"}, ${1000}, ${1.08}, ${1080}, ${"2026-08-29"}, ${"2026-09-03"}, ${"open"}, ${"u-102"})`
 
     yield* sql`INSERT INTO production_orders VALUES (${"4812"}, ${"Retractable Tonneau Cover Assembly"}, ${10}, ${"2026-09-07"}, ${"2026-09-10"}, ${"planned"}, ${"Line 2"}, ${"u-301"}, ${stringify([{ partId: "RT-4471", qty: 120 }, { partId: "RT-2210", qty: 30 }])})`
-    yield* sql`INSERT INTO production_orders VALUES (${"4820"}, ${"Latch Rail Assembly"}, ${40}, ${"2026-09-05"}, ${"2026-09-06"}, ${"planned"}, ${"Line 4"}, ${"u-301"}, ${stringify([{ partId: "RT-1180", qty: 80, lotId: "L-2093" }])})`
+    yield* sql`INSERT INTO production_orders VALUES (${"4820"}, ${"Latch Rail Assembly"}, ${40}, ${"2026-09-11"}, ${"2026-09-12"}, ${"planned"}, ${"Line 4"}, ${"u-301"}, ${stringify([{ partId: "RT-1180", qty: 80, lotId: "L-2093" }])})`
 
-    yield* sql`INSERT INTO quality_lots VALUES (${"L-2093"}, ${"RT-1180"}, ${100}, ${"hold"}, ${"2026-08-28"}, ${stringify(["4820"])}, ${"Surface finish 3.4 Ra vs spec 3.2 Ra"}, ${"u-202"}, ${"2026-09-02"})`
+    yield* sql`INSERT INTO quality_lots VALUES (${"L-2093"}, ${"RT-1180"}, ${100}, ${"good"}, ${"2026-08-28"}, ${stringify(["4820"])}, ${null}, ${null}, ${null})`
     yield* sql`INSERT INTO quality_lots VALUES (${"L-2094"}, ${"RT-1180"}, ${120}, ${"good"}, ${"2026-08-30"}, ${stringify([])}, ${null}, ${null}, ${null})`
     yield* sql`INSERT INTO quality_lots VALUES (${"L-2087"}, ${"RT-1180"}, ${20}, ${"good"}, ${"2026-08-25"}, ${stringify(["4804"])}, ${null}, ${null}, ${null})`
 
