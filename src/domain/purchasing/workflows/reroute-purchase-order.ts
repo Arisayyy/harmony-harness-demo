@@ -16,6 +16,10 @@ export class RerouteWorkflowError extends Schema.Error<RerouteWorkflowError>("Re
 export class RerouteWorkflowResult extends Schema.Class<RerouteWorkflowResult>("RerouteWorkflowResult")({ replacementPoId: Schema.String, scheduledWorkId: Schema.String }) {}
 export class QualifiedSupplier extends Schema.Class<QualifiedSupplier>("QualifiedSupplier")({ supplier: Supplier, orderedDate: Schema.String, promisedDate: Schema.String, followUpDate: Schema.String }) {}
 
+const decodeCreatePurchaseOrderOutput = Schema.decodeUnknownEffect(CreatePurchaseOrderOutput)
+const decodeChangePurchaseOrderStatusOutput = Schema.decodeUnknownEffect(ChangePurchaseOrderStatusOutput)
+const decodeNotifyProductionOutput = Schema.decodeUnknownEffect(NotifyProductionOutput)
+const decodeScheduleArrivalCheckOutput = Schema.decodeUnknownEffect(ScheduleArrivalCheckOutput)
 const failStep = (step: string) => (error: unknown) => new RerouteWorkflowError({ step, message: String(error) })
 const nextTuesday = (date: string) => {
   const value = new Date(`${date}T12:00:00Z`)
@@ -60,7 +64,7 @@ export const layer = ReroutePurchaseOrderWorkflow.toLayer(Effect.fn("PurchasingR
     execute: Effect.gen(function*() {
       const principal = yield* directory.get(payload.principalId).pipe(Effect.mapError(failStep("confirm-lead-time")))
       const production = yield* erp.getProductionOrder(principal, payload.productionOrderId).pipe(Effect.mapError(failStep("confirm-lead-time")))
-      const now = yield* clock.now
+      const now = yield* clock.now.pipe(Effect.mapError(failStep("confirm-lead-time")))
       const orderedDate = now.slice(0, 10)
       const arrival = new Date(`${orderedDate}T12:00:00Z`)
       arrival.setUTCDate(arrival.getUTCDate() + supplier.leadTimeDays)
@@ -82,7 +86,7 @@ export const layer = ReroutePurchaseOrderWorkflow.toLayer(Effect.fn("PurchasingR
       const principal = yield* directory.get(payload.principalId).pipe(Effect.mapError(failStep("create-new-po")))
       const idempotencyKey = yield* Activity.idempotencyKey("create-new-po")
       const result = yield* runtime.execute({ tool: "erp.create-po", principal, idempotencyKey, input: { poId: replacementPoId, partId: payload.partId, supplierId: qualified.supplier.supplierId, qty: payload.quantity, unitPrice: price.unitPrice, orderedDate: qualified.orderedDate, promisedDate: qualified.promisedDate } }).pipe(Effect.mapError(failStep("create-new-po")))
-      return yield* Schema.decodeUnknown(CreatePurchaseOrderOutput)(result).pipe(Effect.mapError(failStep("create-new-po")))
+      return yield* decodeCreatePurchaseOrderOutput(result).pipe(Effect.mapError(failStep("create-new-po")))
     })
   }).pipe(ReroutePurchaseOrderWorkflow.withCompensation((result) => Effect.gen(function*() {
     const principal = yield* directory.get(payload.principalId).pipe(Effect.orDie)
@@ -99,7 +103,7 @@ export const layer = ReroutePurchaseOrderWorkflow.toLayer(Effect.fn("PurchasingR
       const principal = yield* directory.get(payload.principalId).pipe(Effect.mapError(failStep("cancel-old-po")))
       const idempotencyKey = yield* Activity.idempotencyKey("cancel-old-po")
       const result = yield* runtime.execute({ tool: "erp.set-po-status", principal, idempotencyKey, input: { poId: payload.originalPoId, status: "cancelled" } }).pipe(Effect.mapError(failStep("cancel-old-po")))
-      return yield* Schema.decodeUnknown(ChangePurchaseOrderStatusOutput)(result).pipe(Effect.mapError(failStep("cancel-old-po")))
+      return yield* decodeChangePurchaseOrderStatusOutput(result).pipe(Effect.mapError(failStep("cancel-old-po")))
     })
   }).pipe(ReroutePurchaseOrderWorkflow.withCompensation((result) => Effect.gen(function*() {
     const principal = yield* directory.get(payload.principalId).pipe(Effect.orDie)
@@ -115,7 +119,7 @@ export const layer = ReroutePurchaseOrderWorkflow.toLayer(Effect.fn("PurchasingR
       const principal = yield* directory.get(payload.principalId).pipe(Effect.mapError(failStep("notify-production")))
       const idempotencyKey = yield* Activity.idempotencyKey("notify-production")
       const result = yield* runtime.execute({ tool: "production.notify", principal, idempotencyKey, input: { messageId, productionOrderId: payload.productionOrderId, message: `PO ${payload.originalPoId} was rerouted to ${qualified.supplier.name}. Replacement ${created.poId} is promised ${qualified.promisedDate}.` } }).pipe(Effect.mapError(failStep("notify-production")))
-      return yield* Schema.decodeUnknown(NotifyProductionOutput)(result).pipe(Effect.mapError(failStep("notify-production")))
+      return yield* decodeNotifyProductionOutput(result).pipe(Effect.mapError(failStep("notify-production")))
     })
   }).pipe(ReroutePurchaseOrderWorkflow.withCompensation(() => Effect.gen(function*() {
     const principal = yield* directory.get(payload.principalId).pipe(Effect.orDie)
@@ -131,7 +135,7 @@ export const layer = ReroutePurchaseOrderWorkflow.toLayer(Effect.fn("PurchasingR
       const principal = yield* directory.get(payload.principalId).pipe(Effect.mapError(failStep("schedule-arrival-check")))
       const idempotencyKey = yield* Activity.idempotencyKey("schedule-arrival-check")
       const result = yield* runtime.execute({ tool: "schedule.arrival-check", principal, idempotencyKey, input: { workId, runAt: `${qualified.followUpDate}T09:00:00-06:00`, poId: replacementPoId, partId: payload.partId, productionOrderId: payload.productionOrderId, principalId: payload.principalId } }).pipe(Effect.mapError(failStep("schedule-arrival-check")))
-      return yield* Schema.decodeUnknown(ScheduleArrivalCheckOutput)(result).pipe(Effect.mapError(failStep("schedule-arrival-check")))
+      return yield* decodeScheduleArrivalCheckOutput(result).pipe(Effect.mapError(failStep("schedule-arrival-check")))
     })
   }).pipe(ReroutePurchaseOrderWorkflow.withCompensation((result) => Effect.gen(function*() {
     const principal = yield* directory.get(payload.principalId).pipe(Effect.orDie)
