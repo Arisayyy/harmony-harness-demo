@@ -21,7 +21,7 @@ export class CreatePurchaseOrderOutput extends Schema.Class<CreatePurchaseOrderO
 
 export class ChangePurchaseOrderStatusInput extends Schema.Class<ChangePurchaseOrderStatusInput>("ChangePurchaseOrderStatusInput")({
   poId: Schema.String,
-  status: Schema.Literal("open", "cancelled")
+  status: Schema.Literals(["open", "cancelled"])
 }) {}
 
 export class ChangePurchaseOrderStatusOutput extends Schema.Class<ChangePurchaseOrderStatusOutput>("ChangePurchaseOrderStatusOutput")({

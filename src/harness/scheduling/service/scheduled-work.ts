@@ -1,14 +1,15 @@
 import { Context, Effect, Layer, Schema } from "effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
+import type { SqlError } from "effect/unstable/sql/SqlError"
 import { BusinessClock } from "../model/business-clock"
 
-export class ScheduledWork extends Schema.Class<ScheduledWork>("ScheduledWork")({ workId: Schema.String, runAt: Schema.String, kind: Schema.String, payload: Schema.Unknown, status: Schema.Literal("scheduled", "running", "complete"), dedupeKey: Schema.String, createdAt: Schema.String }) {}
+export class ScheduledWork extends Schema.Class<ScheduledWork>("ScheduledWork")({ workId: Schema.String, runAt: Schema.String, kind: Schema.String, payload: Schema.Unknown, status: Schema.Literals(["scheduled", "running", "complete"]), dedupeKey: Schema.String, createdAt: Schema.String }) {}
 
 export class ScheduledWorkService extends Context.Service<ScheduledWorkService, {
-  readonly schedule: (work: Omit<ScheduledWork, "createdAt" | "status">) => Effect.Effect<ScheduledWork>
-  readonly cancel: (workId: string) => Effect.Effect<void>
-  readonly complete: (workId: string) => Effect.Effect<void>
-  readonly due: Effect.Effect<ReadonlyArray<ScheduledWork>>
+  readonly schedule: (work: Omit<ScheduledWork, "createdAt" | "status">) => Effect.Effect<ScheduledWork, SqlError>
+  readonly cancel: (workId: string) => Effect.Effect<void, SqlError>
+  readonly complete: (workId: string) => Effect.Effect<void, SqlError>
+  readonly due: Effect.Effect<ReadonlyArray<ScheduledWork>, SqlError>
 }>()("harmony/scheduling/ScheduledWorkService") {}
 
 export const layer = Layer.effect(

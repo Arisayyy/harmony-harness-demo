@@ -10,7 +10,7 @@ export class RunRecord extends Schema.Class<RunRecord>("RunRecord")({
   evidenceJson: Schema.String,
   gateJson: Schema.optional(Schema.String),
   approvalId: Schema.optional(Schema.String),
-  status: Schema.Literal("completed", "pending_approval", "executing", "failed"),
+  status: Schema.Literals(["completed", "pending_approval", "executing", "failed"]),
   outcomeJson: Schema.optional(Schema.String),
   createdAt: Schema.String,
   updatedAt: Schema.String

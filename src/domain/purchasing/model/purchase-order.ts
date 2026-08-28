@@ -1,6 +1,6 @@
 import { Schema } from "effect"
 
-export const PurchaseOrderStatus = Schema.Literal("open", "cancelled", "received")
+export const PurchaseOrderStatus = Schema.Literals(["open", "cancelled", "received"])
 export type PurchaseOrderStatus = typeof PurchaseOrderStatus.Type
 
 export class PurchaseOrder extends Schema.Class<PurchaseOrder>("PurchaseOrder")({

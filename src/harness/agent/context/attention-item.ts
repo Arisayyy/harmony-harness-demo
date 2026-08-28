@@ -7,6 +7,6 @@ export class AttentionItem extends Schema.Class<AttentionItem>("AttentionItem")(
   principalId: Schema.String,
   kind: Schema.String,
   payload: Schema.Unknown,
-  status: Schema.Literal("open", "planned", "closed"),
+  status: Schema.Literals(["open", "planned", "closed"]),
   createdAt: Schema.String
 }) {}

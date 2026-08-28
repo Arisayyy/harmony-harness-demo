@@ -1,7 +1,7 @@
 import { Schema } from "effect"
 
 export class EvidenceSnapshot extends Schema.Class<EvidenceSnapshot>("EvidenceSnapshot")({
-  provider: Schema.Literal("erp", "mail", "calendar", "policy", "tool", "workflow"),
+  provider: Schema.Literals(["erp", "mail", "calendar", "policy", "tool", "workflow"]),
   sourceId: Schema.String,
   observedAt: Schema.String,
   payload: Schema.Unknown

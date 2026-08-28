@@ -1,7 +1,7 @@
 import { Schema } from "effect"
 
 export class ApprovalDecision extends Schema.Class<ApprovalDecision>("ApprovalDecision")({
-  decision: Schema.Literal("approved", "rejected"),
+  decision: Schema.Literals(["approved", "rejected"]),
   reviewerId: Schema.String,
   reason: Schema.optional(Schema.String),
   decidedAt: Schema.String
@@ -16,8 +16,8 @@ export class ApprovalRecord extends Schema.Class<ApprovalRecord>("ApprovalRecord
   planHash: Schema.String,
   planJson: Schema.String,
   policyReason: Schema.String,
-  status: Schema.Literal("pending", "approved", "rejected"),
-  decision: Schema.optional(Schema.Literal("approved", "rejected")),
+  status: Schema.Literals(["pending", "approved", "rejected"]),
+  decision: Schema.optional(Schema.Literals(["approved", "rejected"])),
   reviewerId: Schema.optional(Schema.String),
   reviewerReason: Schema.optional(Schema.String),
   createdAt: Schema.String,

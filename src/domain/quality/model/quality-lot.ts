@@ -4,7 +4,7 @@ export class QualityLot extends Schema.Class<QualityLot>("QualityLot")({
   lotId: Schema.String,
   partId: Schema.String,
   qty: Schema.Number,
-  status: Schema.Literal("good", "hold", "consumed"),
+  status: Schema.Literals(["good", "hold", "consumed"]),
   receivedDate: Schema.String,
   allocatedTo: Schema.Array(Schema.String),
   holdReason: Schema.optional(Schema.String),

@@ -3,7 +3,7 @@ import { Effect, Layer } from "effect"
 import { FetchHttpClient } from "effect/unstable/http"
 import { AppConfig } from "../../infra/config/app-config"
 
-export const layer = Layer.unwrapEffect(
+export const layer = Layer.unwrap(
   Effect.map(AppConfig, (config) =>
     OpenRouterClient.layer({
       apiKey: config.openRouterApiKey,

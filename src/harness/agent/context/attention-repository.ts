@@ -1,11 +1,12 @@
 import { Context, Effect, Layer, Option } from "effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
+import type { SqlError } from "effect/unstable/sql/SqlError"
 import { AttentionItem } from "./attention-item"
 
 export class AttentionRepository extends Context.Service<AttentionRepository, {
-  readonly putIfAbsent: (item: AttentionItem) => Effect.Effect<boolean>
-  readonly get: (attentionId: string) => Effect.Effect<Option.Option<AttentionItem>>
-  readonly setStatus: (attentionId: string, status: AttentionItem["status"]) => Effect.Effect<void>
+  readonly putIfAbsent: (item: AttentionItem) => Effect.Effect<boolean, SqlError>
+  readonly get: (attentionId: string) => Effect.Effect<Option.Option<AttentionItem>, SqlError>
+  readonly setStatus: (attentionId: string, status: AttentionItem["status"]) => Effect.Effect<void, SqlError>
 }>()("harmony/agent/AttentionRepository") {}
 
 export const layer = Layer.effect(

@@ -12,7 +12,7 @@ export class ProductionOrder extends Schema.Class<ProductionOrder>("ProductionOr
   qty: Schema.Number,
   scheduledStart: Schema.String,
   scheduledEnd: Schema.String,
-  status: Schema.Literal("planned", "released", "complete"),
+  status: Schema.Literals(["planned", "released", "complete"]),
   line: Schema.String,
   supervisorId: Schema.String,
   components: Schema.Array(ProductionComponent)

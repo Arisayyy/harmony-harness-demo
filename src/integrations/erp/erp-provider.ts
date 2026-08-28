@@ -1,4 +1,5 @@
 import { Context, Data, Effect } from "effect"
+import type { SqlError } from "effect/unstable/sql/SqlError"
 import type { Part } from "../../domain/purchasing/model/part"
 import type { ProductionOrder } from "../../domain/purchasing/model/production-order"
 import type { PurchaseOrder } from "../../domain/purchasing/model/purchase-order"
@@ -6,18 +7,9 @@ import type { Supplier } from "../../domain/purchasing/model/supplier"
 import type { QualityLot } from "../../domain/quality/model/quality-lot"
 import type { Principal } from "../../harness/authorization/permissions/principal"
 
-export class ProviderDenied extends Data.TaggedError("ProviderDenied")<{
-  readonly provider: "erp" | "mail" | "calendar"
-  readonly requiredScope: string
-}> {}
-
-export class ProviderNotFound extends Data.TaggedError("ProviderNotFound")<{
-  readonly provider: "erp" | "mail" | "calendar"
-  readonly entity: string
-  readonly id: string
-}> {}
-
-export type ProviderError = ProviderDenied | ProviderNotFound
+export class ProviderDenied extends Data.TaggedError("ProviderDenied")<{ readonly provider: "erp" | "mail" | "calendar"; readonly requiredScope: string }> {}
+export class ProviderNotFound extends Data.TaggedError("ProviderNotFound")<{ readonly provider: "erp" | "mail" | "calendar"; readonly entity: string; readonly id: string }> {}
+export type ProviderError = ProviderDenied | ProviderNotFound | SqlError
 
 export class ErpProvider extends Context.Service<ErpProvider, {
   readonly getPart: (principal: Principal, partId: string) => Effect.Effect<Part, ProviderError>
