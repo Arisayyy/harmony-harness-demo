@@ -4,7 +4,7 @@ import type { Recommendation } from "../../agent/planning/recommendation"
 import type { GateApproval } from "../../authorization/policy/gate"
 import type { Principal } from "../../authorization/permissions/principal"
 import { BusinessClock } from "../../scheduling/model/business-clock"
-import { ApprovalDecision } from "../model/approval"
+import { ApprovalDecision, ApprovalRecord } from "../model/approval"
 import { ApprovalRepository } from "./approval-repository"
 import { ApprovalDecisionSignal, ApprovalWorkflow } from "./approval-workflow"
 
@@ -15,13 +15,7 @@ export class ApprovalReviewerMismatch extends Data.TaggedError("ApprovalReviewer
 }> {}
 
 export class ApprovalService extends Context.Service<ApprovalService, {
-  readonly request: (options: {
-    readonly approvalId: string
-    readonly runId: string
-    readonly principal: Principal
-    readonly gate: GateApproval
-    readonly recommendation: Recommendation
-  }) => Effect.Effect<string, unknown>
+  readonly request: (options: { readonly approvalId: string; readonly runId: string; readonly principal: Principal; readonly gate: GateApproval; readonly recommendation: Recommendation }) => Effect.Effect<string, unknown>
   readonly decide: (approvalId: string, reviewerId: string, decision: "approved" | "rejected", reason?: string) => Effect.Effect<void, unknown>
 }>()("harmony/approvals/ApprovalService") {}
 
@@ -34,7 +28,7 @@ export const layer = Layer.effect(
     return ApprovalService.of({
       request: Effect.fn("ApprovalService.request")(function*({ approvalId, runId, principal, gate, recommendation }) {
         const createdAt = yield* clock.now
-        return yield* ApprovalWorkflow.execute({
+        const payload = {
           approvalId,
           runId,
           effectiveUserId: principal.userId,
@@ -44,14 +38,13 @@ export const layer = Layer.effect(
           planJson: JSON.stringify(recommendation),
           policyReason: gate.policyReason,
           createdAt
-        }, { discard: true })
+        }
+        yield* repository.create(new ApprovalRecord({ ...payload, status: "pending" }))
+        return yield* ApprovalWorkflow.execute(payload, { discard: true })
       }),
       decide: Effect.fn("ApprovalService.decide")(function*(approvalId, reviewerId, decision, reason) {
         const approval = yield* repository.get(approvalId)
-        if (approval.assignedApproverId !== reviewerId) {
-          return yield* new ApprovalReviewerMismatch({ approvalId, expectedReviewerId: approval.assignedApproverId, actualReviewerId: reviewerId })
-        }
-
+        if (approval.assignedApproverId !== reviewerId) return yield* new ApprovalReviewerMismatch({ approvalId, expectedReviewerId: approval.assignedApproverId, actualReviewerId: reviewerId })
         const executionId = yield* ApprovalWorkflow.executionId({
           approvalId: approval.approvalId,
           runId: approval.runId,
@@ -65,8 +58,7 @@ export const layer = Layer.effect(
         })
         const decidedAt = yield* clock.now
         const token = DurableDeferred.tokenFromExecutionId(ApprovalDecisionSignal, { workflow: ApprovalWorkflow, executionId })
-        const value = new ApprovalDecision({ decision, reviewerId, reason, decidedAt })
-        yield* DurableDeferred.done(ApprovalDecisionSignal, { token, exit: Exit.succeed(value) })
+        yield* DurableDeferred.done(ApprovalDecisionSignal, { token, exit: Exit.succeed(new ApprovalDecision({ decision, reviewerId, reason, decidedAt })) })
       })
     })
   })

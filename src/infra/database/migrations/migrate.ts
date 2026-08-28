@@ -108,6 +108,22 @@ export const migrate = Effect.gen(function*() {
     created_at TEXT NOT NULL
   )`
 
+  yield* sql`CREATE TABLE IF NOT EXISTS agent_runs (
+    run_id TEXT PRIMARY KEY,
+    attention_id TEXT NOT NULL,
+    trace_id TEXT NOT NULL,
+    principal_id TEXT NOT NULL,
+    planner_result_json TEXT NOT NULL,
+    recommendation_json TEXT NOT NULL,
+    evidence_json TEXT NOT NULL,
+    gate_json TEXT,
+    approval_id TEXT,
+    status TEXT NOT NULL,
+    outcome_json TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`
+
   yield* sql`CREATE TABLE IF NOT EXISTS approvals (
     approval_id TEXT PRIMARY KEY,
     run_id TEXT NOT NULL,
