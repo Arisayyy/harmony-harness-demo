@@ -1,4 +1,4 @@
-import { Context, Data, Effect, Layer } from "effect"
+import { Context, Crypto, Data, Effect, Layer } from "effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import type { SqlError } from "effect/unstable/sql/SqlError"
 import { ApprovalRecord } from "../model/approval"
@@ -24,6 +24,7 @@ export const layer = Layer.effect(
   ApprovalRepository,
   Effect.gen(function*() {
     const sql = yield* SqlClient.SqlClient
+    const crypto = yield* Crypto.Crypto
     return ApprovalRepository.of({
       create: (approval) => Effect.asVoid(sql`INSERT OR IGNORE INTO approvals (approval_id, run_id, effective_user_id, requested_approver_id, assigned_approver_id, plan_hash, plan_json, policy_reason, status, decision, reviewer_id, reviewer_reason, created_at, resolved_at) VALUES (${approval.approvalId}, ${approval.runId}, ${approval.effectiveUserId}, ${approval.requestedApproverId}, ${approval.assignedApproverId}, ${approval.planHash}, ${approval.planJson}, ${approval.policyReason}, ${approval.status}, ${approval.decision ?? null}, ${approval.reviewerId ?? null}, ${approval.reviewerReason ?? null}, ${approval.createdAt}, ${approval.resolvedAt ?? null})`),
       get: Effect.fn("ApprovalRepository.get")(function*(approvalId) {
@@ -33,8 +34,9 @@ export const layer = Layer.effect(
       }),
       resolve: (approvalId, decision, reviewerId, reason, resolvedAt) => Effect.asVoid(sql`UPDATE approvals SET status = ${decision}, decision = ${decision}, reviewer_id = ${reviewerId}, reviewer_reason = ${reason ?? null}, resolved_at = ${resolvedAt} WHERE approval_id = ${approvalId} AND status = 'pending'`),
       route: (approvalId, fromApproverId, toApproverId, reason, routedAt) => sql.withTransaction(Effect.gen(function*() {
+        const routeId = yield* crypto.randomUUIDv4
         yield* sql`UPDATE approvals SET assigned_approver_id = ${toApproverId} WHERE approval_id = ${approvalId} AND status = 'pending'`
-        yield* sql`INSERT INTO approval_routes (route_id, approval_id, from_approver_id, to_approver_id, reason, routed_at) VALUES (${crypto.randomUUID()}, ${approvalId}, ${fromApproverId}, ${toApproverId}, ${reason}, ${routedAt})`
+        yield* sql`INSERT INTO approval_routes (route_id, approval_id, from_approver_id, to_approver_id, reason, routed_at) VALUES (${routeId}, ${approvalId}, ${fromApproverId}, ${toApproverId}, ${reason}, ${routedAt})`
       }))
     })
   })
