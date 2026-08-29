@@ -1,17 +1,26 @@
 import { Context, Crypto, Effect, Layer } from "effect"
 import { AgentHarness } from "../../agent/execution/agent-harness"
-import { AuditLog } from "../../audit/service/audit-log"
 import { EvidenceSnapshot } from "../../audit/model/audit-event"
+import { AuditLog } from "../../audit/service/audit-log"
 import { PrincipalDirectory } from "../../authorization/permissions/principal-directory"
+import type { RunRecord } from "../../memory/durable/run-record"
 import { MailRouteCatalog } from "../catalog/mail-route-catalog"
 import type { InboundMail } from "../model/inbound-mail"
+import { EventReceiptRepository } from "../repository/event-receipt-repository"
 import { MailTriage, type MailTriageDecision } from "../triage/mail-triage"
-import type { RunRecord } from "../../memory/durable/run-record"
 
-export type MailIngressResult = {
+export type ProcessedMailIngress = {
+  readonly status: "processed"
   readonly decision: MailTriageDecision
   readonly runs: ReadonlyArray<RunRecord>
 }
+
+export type DuplicateMailIngress = {
+  readonly status: "duplicate"
+  readonly runs: ReadonlyArray<never>
+}
+
+export type MailIngressResult = ProcessedMailIngress | DuplicateMailIngress
 
 export class MailIngress extends Context.Service<MailIngress, {
   readonly received: (principalId: string, mail: InboundMail) => Effect.Effect<MailIngressResult, unknown>
@@ -22,6 +31,7 @@ export const layer = Layer.effect(
   Effect.gen(function*() {
     const triage = yield* MailTriage
     const routes = yield* MailRouteCatalog
+    const receipts = yield* EventReceiptRepository
     const directory = yield* PrincipalDirectory
     const harness = yield* AgentHarness
     const audit = yield* AuditLog
@@ -30,9 +40,23 @@ export const layer = Layer.effect(
     return MailIngress.of({
       received: Effect.fn("MailIngress.received")(function*(principalId, mail) {
         const principal = yield* directory.get(principalId)
-        const traceId = yield* crypto.randomUUIDv4
+        const [traceId, claimId] = yield* Effect.all([crypto.randomUUIDv4, crypto.randomUUIDv4])
         const ingressRunId = `mail:${mail.messageId}`
         const evidence = [new EvidenceSnapshot({ provider: "mail", sourceId: mail.messageId, observedAt: mail.date, payload: mail })]
+        const claimed = yield* receipts.claim("mail", mail.messageId, claimId, mail.date)
+
+        if (!claimed) {
+          yield* audit.append({
+            runId: ingressRunId,
+            traceId,
+            eventType: "mail.duplicate",
+            actor: "mail-ingress",
+            effectiveUserId: principal.userId,
+            evidence,
+            data: { messageId: mail.messageId }
+          })
+          return { status: "duplicate", runs: [] }
+        }
 
         yield* audit.append({
           runId: ingressRunId,
@@ -57,7 +81,7 @@ export const layer = Layer.effect(
 
         switch (decision._tag) {
           case "IgnoreMail":
-            return { decision, runs: [] }
+            return { status: "processed", decision, runs: [] }
           case "RouteMail": {
             const route = yield* routes.resolve(decision.route)
             const attentionItems = yield* route.handle(principal, mail)
@@ -71,7 +95,7 @@ export const layer = Layer.effect(
               evidence,
               data: { attentionIds: attentionItems.map((item) => item.attentionId), agentRunIds: runs.map((run) => run.runId) }
             })
-            return { decision, runs }
+            return { status: "processed", decision, runs }
           }
         }
       })
