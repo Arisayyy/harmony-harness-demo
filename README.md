@@ -106,14 +106,15 @@ The thin files under `src/infra/runtime/` are compatibility re-exports; the actu
 
 ## Run it
 
-Requirements: Bun 1.4.x and an OpenRouter API key for the live AI path.
+Requirements: Bun 1.3.12 or newer and an OpenRouter API key for the live AI path.
 
 ```bash
 cp .env.example .env
 # set OPENROUTER_API_KEY in .env
 bun install --frozen-lockfile
 bun run check
-bun run demo
+bun run demo             # interactive approval UI
+bun run demo:auto        # deterministic, non-interactive CI/demo run
 ```
 
 Default configuration:
@@ -125,10 +126,12 @@ OPENROUTER_MODEL=z-ai/glm-5.3-flash
 
 The live demo uses OpenRouter twice for a relevant supplier email: first for immediate email relevance/routing, then for the evidence-backed agent recommendation. Irrelevant mail only incurs the triage call.
 
+The interactive demo pauses on real durable approval records. Press `A` to approve, `D` to decline, or `Q` to quit. Approval executes the proposed workflow/actions; declining records the decision without executing writes.
+
 For the deterministic CI/reviewer environment:
 
 ```bash
-HARMONY_PLANNER=fixture bun run demo
+bun run demo:auto
 ```
 
 Useful operator commands:

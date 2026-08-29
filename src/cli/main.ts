@@ -1,13 +1,15 @@
 import * as BunServices from "@effect/platform-bun/BunServices"
 import { Effect } from "effect"
-import { Command } from "effect/unstable/cli"
+import { Command, Flag } from "effect/unstable/cli"
 import { layer as fixtureLayer } from "../environments/demo/fixture-layer"
 import { layer as liveLayer } from "../environments/demo/live-layer"
 import { runDemo } from "../scenarios/run-demo"
 import { benchmark } from "./commands/benchmark"
 import { approval, audit, clock, run } from "./commands/operations"
 
-const demo = Command.make("demo", {}, () => runDemo).pipe(Command.withDescription("Run Scenario A, Tuesday follow-up, Scenario B, and failure fixtures"))
+const demo = Command.make("demo", {
+  auto: Flag.boolean("auto").pipe(Flag.withDefault(false), Flag.withDescription("Run without interactive approval prompts"))
+}, ({ auto }) => runDemo(auto ? "auto" : "interactive")).pipe(Command.withDescription("Run the interactive operator demo (use --auto for CI)"))
 
 const cli = Command.make("harmony").pipe(
   Command.withDescription("Durable enterprise agent harness demo"),
