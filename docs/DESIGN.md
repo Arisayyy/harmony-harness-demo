@@ -59,7 +59,7 @@ This is also why the purchasing path is a workflow rather than six model tool ca
 
 A `Principal` carries scopes, manager/backup relationships, and an approval limit. The gate performs plan-level checks before any approval is requested.
 
-For the reroute path it verifies the write scopes, confirms that the proposed supplier is approved for the exact part, finds an approved price, computes the replacement PO value, and determines whether the user's authority is sufficient. The intentionally cheaper `S-Q` supplier exists in the data but is unapproved; a model that selects it is rejected regardless of its rationale.
+For the reroute path it verifies the write scopes, verifies that the original PO actually contains the proposed part, requires the alternate supplier to differ from the incumbent supplier, confirms that the proposed supplier is approved for the exact part, finds an approved price, computes the replacement PO value, and determines whether the user's authority is sufficient. The intentionally cheaper `S-Q` supplier exists in the data but is unapproved; a model that selects it is rejected regardless of its rationale.
 
 Every write still goes through `ToolRuntime`, which rechecks the principal's current scopes immediately before execution. The integration test revokes `erp:po:create` after the planning boundary and proves that the runtime blocks the write. This closes a time-of-check/time-of-use gap between plan approval and execution.
 
@@ -77,6 +77,8 @@ Approval waiting is an Effect Workflow backed by a `DurableDeferred`, so the pro
 4. cancel the old PO;
 5. notify production;
 6. schedule the next-Tuesday arrival check.
+
+The first workflow activity repeats the original-PO and true-alternate checks even though policy already performed them. That is deliberate defense in depth: direct/internal workflow execution cannot bypass a business invariant merely because the normal caller would have gated it.
 
 Activities that mutate state have compensation where a meaningful inverse exists. A failed later step can cancel the newly created PO, restore the old PO status, emit a correction, and cancel scheduled follow-up work.
 
@@ -106,7 +108,7 @@ The planner is evaluated separately from the safety kernel. Five versioned bench
 
 This matters because a safe harness should not conflate “model quality” with “system safety.” A planner can fail a benchmark while the deterministic gate still prevents a forbidden write. Conversely, a planner can pass every fixture while a broken tool boundary would still be unacceptable. CI therefore validates the deterministic invariants independently of an external API key.
 
-The current integration suite covers durable trigger dedupe, unapproved supplier rejection, runtime scope revocation, workflow run identity/replay, and real process death/recovery. CI runs strict TypeScript first and then the Bun-native tests against the actual `bun:sqlite` driver.
+The current integration suite covers durable trigger dedupe, unapproved-supplier rejection, rejection of a no-op incumbent-supplier reroute, runtime scope revocation, backup approver routing, workflow run identity/replay, and real process death/recovery. CI runs strict TypeScript first and then the Bun-native tests against the actual `bun:sqlite` driver, followed by the full deterministic demo.
 
 ## 10. Production path and tradeoffs
 
@@ -124,3 +126,41 @@ A production deployment would preserve the interfaces while changing the edges:
 - benchmark gates before planner/model rollout.
 
 The most important production property is already represented in the demo: none of those infrastructure replacements require granting the model more authority. The planner stays a typed recommendation boundary, and the deterministic safety kernel stays between the model and enterprise side effects.
+
+## 11. Identity and authentication
+
+The demo intentionally models **authorization state**, not a fake OAuth server. A seeded `Principal` is the effective user and carries the scopes, reporting chain, backup approver, and monetary authority used by providers, policy, approvals, and tools. That is enough to exercise propagation and enforcement without disguising fixture code as real identity infrastructure.
+
+In production the principal would be constructed only after authenticating a human or workload through the organization's IdP. For an interactive employee agent, the preferred path is OIDC/SAML SSO into the agent service followed by short-lived delegated connector credentials. The harness should preserve both the authenticated actor and the effective user in every run. Connector calls should use delegated credentials where possible rather than a shared omnipotent service token. Service-to-service calls would use workload identity and mTLS or equivalent platform identity.
+
+The important invariant is that authentication happens before a `Principal` enters the harness and authorization happens again at every data/side-effect boundary. A model never chooses or manufactures its own identity. Approval decisions also require an authenticated reviewer identity, and the durable approval verifies that reviewer against the currently assigned approver before resolving the wait.
+
+## 12. Long-term memory
+
+Long-term memory is deliberately narrower than “store every conversation in a vector database.” The durable memory that matters for this class of enterprise agent is structured operational memory: attention items, run snapshots, evidence, approval state, workflow state, scheduled work, idempotency records, and audit history.
+
+Those records answer questions such as “what did the agent know when it proposed this?”, “was this plan already executed?”, “which approval authorized the write?”, and “what must resume after a restart?” without semantic retrieval or model inference.
+
+A production system could add user preferences or summarized historical context, but that memory would be a separate, permission-aware provider with retention and provenance rules. It would never silently broaden the user's current connector permissions. High-value facts used to authorize a write would still be re-read from the system of record and snapshotted into the current run rather than trusted from stale semantic memory.
+
+## 13. Scaling to thousands of employees
+
+The current single-process/SQLite deployment is intentionally optimized for reviewer portability, not fleet scale. The service boundaries are designed so the execution model can scale without changing domain code.
+
+At thousands of employees, the main scaling units are **attention items, agent runs, workflow instances, and connector calls**, not chat sessions. A production deployment would move harness and workflow persistence to managed SQL, run stateless detector/planner/API workers horizontally, and use Effect Cluster or another durable routing layer to distribute workflow execution. Scheduled work would be partitioned by due time/tenant, and connector concurrency would be rate-limited per upstream system and organization.
+
+Tenant and employee isolation would be explicit in every persistence key and query. Provider credentials would be scoped per user/organization, policy data would be cached with short lifetimes and versioned invalidation, and expensive LLM work would be bounded by per-user/organization quotas. The dedupe key and idempotency-key model already prevents horizontal workers from turning duplicate events/retries into duplicate writes; in production the underlying database constraints remain the final arbiter.
+
+The audit/event stream can fan out asynchronously to observability, compliance, and evaluation consumers. None of those consumers need to sit on the critical write path. This keeps the authorization/approval/tool path small while still allowing organization-wide analytics and evaluation.
+
+## 14. Would a graph-first deterministic workflow engine be designed differently?
+
+Yes, but mostly at the authoring and scheduling layer rather than at the safety boundaries.
+
+This submission expresses Scenario A as a sequential Effect Workflow because the challenge requires a fixed six-step order and the desired API is intentionally close to normal program control flow. Activities are durable nodes, compensation is attached to mutations, and replay makes the sequential definition restart-safe. For this workflow, a graph representation would add ceremony without adding reachable behavior.
+
+A graph-first engine becomes valuable when workflows have explicit parallel branches, joins, conditional subgraphs, human waits at multiple branches, reusable subgraphs, or graph-level visualization/version migration requirements. In that design, the definition would likely compile a typed DAG/state machine into durable Effect Workflow execution. Node IDs and edge conditions would become part of the persisted workflow version, and the engine would validate acyclicity/reachability (or explicitly modeled loops) before deployment.
+
+The **planner, gate, approval binding, tool catalog, idempotency, evidence, and audit contracts would not change**. The graph engine would only change how an already-authorized business process is orchestrated. That separation is intentional: switching from sequential code-first workflow authoring to a DAG should not grant the model additional authority or require rewriting connector security.
+
+For Scenario A specifically, I would keep the current code-first definition. If the product grew into a general enterprise workflow platform, I would add a graph authoring layer that compiles onto the same Effect Workflow activities rather than replacing the durable runtime or safety kernel.
