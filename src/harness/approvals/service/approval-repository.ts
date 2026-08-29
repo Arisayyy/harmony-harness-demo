@@ -1,4 +1,5 @@
 import { Context, Crypto, Data, Effect, Layer } from "effect"
+import type { PlatformError } from "effect/PlatformError"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import type { SqlError } from "effect/unstable/sql/SqlError"
 import { ApprovalRecord } from "../model/approval"
@@ -9,7 +10,7 @@ export class ApprovalRepository extends Context.Service<ApprovalRepository, {
   readonly create: (approval: ApprovalRecord) => Effect.Effect<void, SqlError>
   readonly get: (approvalId: string) => Effect.Effect<ApprovalRecord, ApprovalNotFound | SqlError>
   readonly resolve: (approvalId: string, decision: "approved" | "rejected", reviewerId: string, reason: string | undefined, resolvedAt: string) => Effect.Effect<void, SqlError>
-  readonly route: (approvalId: string, fromApproverId: string, toApproverId: string, reason: string, routedAt: string) => Effect.Effect<void, SqlError>
+  readonly route: (approvalId: string, fromApproverId: string, toApproverId: string, reason: string, routedAt: string) => Effect.Effect<void, SqlError | PlatformError>
 }>()("harmony/approvals/ApprovalRepository") {}
 
 const fromRow = (row: any) => new ApprovalRecord({
