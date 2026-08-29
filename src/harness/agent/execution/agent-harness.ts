@@ -93,12 +93,12 @@ export const layer = Layer.effect(
         yield* audit.append({ runId, traceId: run.traceId, eventType: "execution.started", actor: "agent", effectiveUserId: principal.userId, evidence: [], data: { approvalId: approval.approvalId, reviewerId: approval.reviewerId } })
 
         const outcome = recommendation._tag === "EnterWorkflow"
-          ? yield* ReroutePurchaseOrderWorkflow.execute({ runId, principalId: principal.userId, partId: recommendation.parameters.partId, originalPoId: recommendation.parameters.originalPoId, productionOrderId: recommendation.parameters.productionOrderId, alternateSupplierId: recommendation.parameters.alternateSupplierId, quantity: recommendation.parameters.quantity }).pipe(Effect.provideService(WorkflowEngine, engine))
+          ? yield* ReroutePurchaseOrderWorkflow.execute({ runId, traceId: run.traceId, principalId: principal.userId, partId: recommendation.parameters.partId, originalPoId: recommendation.parameters.originalPoId, productionOrderId: recommendation.parameters.productionOrderId, alternateSupplierId: recommendation.parameters.alternateSupplierId, quantity: recommendation.parameters.quantity }).pipe(Effect.provideService(WorkflowEngine, engine))
           : recommendation._tag === "ProposedActions"
             ? yield* Effect.forEach(recommendation.actions, (action, index) => {
                 const suffix = runId.replace(/-/g, "").slice(0, 10)
                 const input = action._tag === "production.notify" || action._tag === "purchasing.flag-shortage" ? { ...action, messageId: `M-${suffix}-${index}` } : action
-                return runtime.execute({ tool: action._tag, principal, input, idempotencyKey: `${runId}:action:${index}` })
+                return runtime.execute({ tool: action._tag, principal, input, idempotencyKey: `${runId}:action:${index}`, audit: { runId, traceId: run.traceId } })
               }, { concurrency: 1 })
             : yield* new ApprovalStale({ runId, reason: "A no-action recommendation cannot have an executable approval." })
 
