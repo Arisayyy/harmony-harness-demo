@@ -15,10 +15,11 @@ If you have five minutes, read these files in order:
 3. `src/harness/tools/runtime/tool-runtime.ts` — runtime scope checks and write idempotency.
 4. `src/domain/purchasing/workflows/reroute-purchase-order.ts` — the durable six-step workflow and compensation.
 5. `test/harness.integration.test.ts` — the executable safety and restart claims.
-6. `docs/DESIGN.md` — the complete design rationale.
-7. `MODEL.md` — model, prompt, evaluation, and reproducibility notes.
+6. `artifacts/scenario-a.recorded.ndjson` — a CI-generated end-to-end Scenario A audit.
+7. `docs/DESIGN.md` — the design rationale and production path.
+8. `MODEL.md` — model, prompt, evaluation, and reproducibility notes.
 
-The latest submission validation on commit `da7c2e0` passed install, strict TypeScript, and all five Bun-native integration tests, including a real `SIGKILL` followed by workflow replay in a fresh process: https://github.com/Arisayyy/harmony-harness-demo/actions/runs/33222366304
+The branch CI is the executable source of truth: frozen Bun install, strict TypeScript, seven integration tests, the complete deterministic demo, and Scenario A artifact generation all run on every push and pull request.
 
 ## What the demo shows
 
@@ -30,13 +31,15 @@ The harness:
 
 - detects the new supply risk without a user prompt;
 - deduplicates repeated detector scans;
-- gathers ERP + mail evidence using the effective user's read scopes;
+- gathers ERP + mail + calendar evidence using the effective user's read scopes;
 - gives the LLM only typed evidence snapshots and asks for a recommendation, never direct execution;
 - rejects the intentionally tempting cheap but unapproved supplier `S-Q` in deterministic policy;
+- requires a reroute to actually change suppliers, so the incumbent `S-Y` cannot be proposed as its own alternate;
 - routes the replacement PO through a plan-level human approval;
 - executes the fixed `purchasing.reroute-po@1` workflow;
+- rechecks the original-PO/alternate-supplier invariant inside the workflow itself;
 - rechecks write scopes again at every tool invocation;
-- creates the replacement PO idempotently, cancels the old PO, notifies production, and schedules a Tuesday follow-up;
+- creates the replacement PO idempotently with approved supplier `S-Z`, cancels the old PO, notifies production, and schedules a Tuesday follow-up;
 - persists a complete audit trail and evidence snapshot.
 
 The workflow is deliberately killed immediately after durable step 03 in a separate fixture. A fresh Bun process opens the same SQLite state and resumes without creating a second replacement PO.
@@ -63,7 +66,7 @@ ERP / Mail / Calendar
  OpenRouter planner              ← recommendation only; evidence IDs only
         │
         ▼
- deterministic policy gate       ← scopes, supplier approval, value limits
+ deterministic policy gate       ← scopes, PO/supplier invariants, value limits
         │
         ▼
  durable approval workflow       ← plan hash + approver identity
@@ -103,7 +106,7 @@ Policy and authorization are code, not prompt instructions.
 ```bash
 cp .env.example .env
 # set OPENROUTER_API_KEY in .env
-bun install
+bun install --frozen-lockfile
 bun run check
 bun run demo
 ```
@@ -115,16 +118,22 @@ DATABASE_PATH=.data/harmony.db
 OPENROUTER_MODEL=z-ai/glm-5.3-flash
 ```
 
-`bun run demo` resets only the synthetic demo dataset, then narrates Scenario A, the approval, the deterministic reroute, backup-approver routing, the Tuesday follow-up, Scenario B, a revoked-scope write denial, and the independent process-crash fixture. Scenario A's audit is exported to `artifacts/scenario-a.ndjson`.
+`bun run demo` resets only the synthetic demo dataset, then narrates Scenario A, the approval, the deterministic reroute, backup-approver routing, the Tuesday follow-up, Scenario B, a revoked-scope write denial, and the independent process-crash fixture. Scenario A's live run audit is exported to `artifacts/scenario-a.ndjson`.
+
+For a fully deterministic reviewer/CI run that needs no external model secret:
+
+```bash
+HARMONY_PLANNER=fixture bun run demo
+```
 
 Useful operator commands are also available:
 
 ```bash
-bun run src/cli/main.ts approval show <approval-id>
-bun run src/cli/main.ts approval approve <approval-id> <reviewer-id>
-bun run src/cli/main.ts approval reject <approval-id> <reviewer-id>
-bun run src/cli/main.ts run resume <run-id>
-bun run src/cli/main.ts audit export <run-id> <path>
+bun run src/cli/main.ts approval list
+bun run src/cli/main.ts approval approve <approval-id> --reviewer <reviewer-id>
+bun run src/cli/main.ts approval reject <approval-id> --reviewer <reviewer-id> --reason "reason"
+bun run src/cli/main.ts run execute <run-id>
+bun run src/cli/main.ts audit show <run-id>
 bun run src/cli/main.ts clock advance <iso-instant>
 ```
 
@@ -137,17 +146,25 @@ bun run typecheck
 bun run test
 ```
 
-The integration suite proves five properties:
+The integration suite proves seven properties:
 
 | Property | What is asserted |
 | --- | --- |
 | Trigger dedupe | the same durable attention key cannot be inserted twice |
-| Supplier policy | an unapproved supplier is rejected before any write |
+| Supplier qualification | an unapproved supplier is rejected before any write |
+| True reroute invariant | the current supplier cannot be accepted as its own alternate |
 | Runtime authorization | revoking `erp:po:create` blocks the write at `ToolRuntime`, even after a plan exists |
+| Backup approval routing | an unanswered approval moves to the configured backup when the primary is OOO tomorrow |
 | Workflow identity | replaying the same agent run returns the same result; a new run receives a distinct workflow execution |
 | Crash durability | a child process is really killed with `SIGKILL`, a fresh process resumes the workflow, and no duplicate replacement PO is created |
 
-CI uses the same commands on Ubuntu with Bun 1.4.0.
+CI uses the same commands on Ubuntu with Bun 1.4.0, then runs the complete deterministic demo and requires the Scenario A audit artifact to exist.
+
+## Recorded run
+
+`artifacts/scenario-a.recorded.ndjson` is a real output preserved from the green CI demo. It uses the explicitly selected deterministic fixture planner so the repository can prove the complete orchestration without storing an OpenRouter secret. The recording still crosses the same detector, scoped providers, evidence snapshot, policy gate, durable approval, workflow, tool runtime, persistence, and audit code as the live planner path. The recorded recommendation selects `S-Z`, while the original PO remains on `S-Y`.
+
+A live OpenRouter run produces the same audit shape and identifies the configured model in `planner.recommendation`.
 
 ## Evaluation
 
@@ -192,6 +209,7 @@ src/
   scenarios/              narrated demo events and crash fixture
 
 test/                     Bun-native integration suite
+artifacts/                recorded/generated audit evidence
 docs/decisions/           ADRs from the architecture grill
 docs/DESIGN.md            submission design document
 MODEL.md                   model/evaluation disclosure
@@ -206,6 +224,7 @@ The implementation is built around a few invariants that are easy to inspect in 
 - **No model-to-tool path.** The model emits a typed recommendation only.
 - **Read permissions are enforced before data reaches the planner.** ERP/mail/calendar adapters reject unauthorized reads.
 - **Write permissions are checked twice.** The policy gate checks the proposed plan; `ToolRuntime` checks the current principal again immediately before execution.
+- **A reroute must actually reroute.** Policy and workflow both reject the original PO supplier as the alternate.
 - **Approvals bind to an immutable plan hash.** Execution recomputes policy and refuses stale or differently-routed approval.
 - **Writes are idempotent outside the workflow engine too.** `tool_idempotency` protects side effects from retries/replay.
 - **Workflow identity includes the durable agent run.** A clean new demo run cannot accidentally replay an older completed execution.
@@ -218,4 +237,4 @@ This is a compact submission, not a production ERP integration. The enterprise s
 
 The model is intentionally used for ambiguous interpretation and recommendation, while authorization, monetary limits, supplier qualification, approval routing, idempotency, and workflow order remain deterministic. That split is the central design choice of the project.
 
-For the longer rationale, threat model, failure semantics, and production path, see `docs/DESIGN.md`.
+For identity/auth, long-term memory, scaling to thousands of employees, graph-first workflow tradeoffs, failure semantics, and the production path, see `docs/DESIGN.md`.
