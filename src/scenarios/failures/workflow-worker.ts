@@ -14,6 +14,7 @@ const program = Effect.gen(function*() {
 
   const result = yield* ReroutePurchaseOrderWorkflow.execute({
     runId: "crash-resume-fixture-v1",
+    traceId: "crash-resume-fixture-v1",
     principalId: "u-101",
     partId: "RT-4471",
     originalPoId: "PO-77812",
