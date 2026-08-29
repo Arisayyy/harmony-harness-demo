@@ -4,44 +4,69 @@
 
 The interesting failure mode for enterprise agents is rarely “the model produced a bad sentence.” It is that an ambiguous model decision is allowed to cross into a privileged system without enough identity, evidence, policy, approval, retry semantics, or audit context around it.
 
-This submission treats the agent as a small distributed system. The LLM is one component inside that system and is deliberately not the authority for permissions or side effects.
+This submission treats the agent as a small distributed system. AI is useful at two interpretation boundaries, but it is deliberately not the authority for permissions or side effects.
 
-The demo uses a RealTruck Guadalajara manufacturing fixture because manufacturing creates a useful multi-system problem: inventory and production live in ERP-like data, the supplier delay arrives in email, approver availability lives in calendar state, and a correct response can involve expensive writes that must survive retries and human latency.
+The demo uses a synthetic RealTruck Guadalajara manufacturing environment because manufacturing creates a useful multi-system problem: inventory and production live in ERP-like data, supplier risk arrives in email, approver availability lives in calendar state, and a correct response can involve expensive writes that must survive retries and human latency.
 
-The implementation has two goals that pull in opposite directions. It should feel agentic—the system notices issues, gathers context, interprets noisy data, and selects a response without a scripted user prompt—but it must also be predictable at the boundaries where money, production state, and authorization are involved.
+The design goal is therefore:
 
-The resulting split is:
+**AI for semantic interpretation; deterministic code for routing validation, authority, and execution.**
 
-**LLM for interpretation; deterministic code for authority and execution.**
+## 2. Kernel, capabilities, integrations, and environments
 
-## 2. Runtime and state model
+The repository separates four concerns.
 
-The code is TypeScript on Bun with Effect 4. Effect provides explicit service dependencies, typed error channels, resource scopes, tracing spans, and the workflow primitives. SQLite is the single portable persistence substrate for the demo. The fake ERP, mail, and calendar systems have independent provider interfaces but share that local database so the entire submission can run without Docker or external SaaS accounts.
+`harness/` is the reusable kernel: event ingress, attention/run orchestration, approvals, generic policy evaluation, workflow support, tool runtime, scheduling, memory, audit, and evaluation contracts. The kernel should not need to know that purchasing or quality exists.
 
-This is an implementation convenience, not an architectural coupling: domain/context code depends on `ErpProvider`, `MailProvider`, and `CalendarProvider`, not SQL tables. A production adapter can replace each SQLite layer with a real delegated API while the planner, gate, workflow, and audit code remain unchanged.
+`domain/` contains installed business capabilities such as purchasing and quality. Those capabilities own domain models, detectors, tools, and workflows.
 
-Persistent state is used for four distinct reasons:
+`integrations/` contains provider contracts and concrete adapters. Domain code depends on `ErpProvider`, `MailProvider`, and `CalendarProvider`, not SQLite tables. OpenRouter implementations also live here because they are replaceable AI adapters.
 
-- enterprise fixture state: POs, lots, production orders, mail, calendars;
-- harness state: attention items, approvals, scheduled work, audit, model benchmark rows;
-- agent-run state: the exact evidence/recommendation/gate/approval relationship for a proposal;
-- Effect Workflow state: activity/replay state needed to resume deterministic workflows.
+`app/` is composition: it registers context resolvers, mail routes, business policy rules, recommendation execution, and tools. This is where the application decides which capabilities are installed.
 
-An Effect fiber/context is never treated as durable memory. Anything required after approval or restart is stored explicitly.
+Finally, `environments/demo/` composes the portable RealTruck demonstration. It selects SQLite enterprise adapters and either OpenRouter AI or deterministic CI AI fixtures. A real deployment can replace those edges without changing `AgentHarness`.
 
-## 3. Detection and context gathering
+This separation gives the codebase a useful architectural test: adding Scenario C should primarily add a domain capability and composition registrations, not another `if (domain === ...)` inside the harness kernel.
 
-The agent starts from detectors, not chat. A detector converts a change in enterprise state into an `AttentionItem`. Each attention item has a durable `dedupeKey`, and the repository has a uniqueness constraint so repeated scans cannot create a queue storm.
+## 3. Event-driven mail ingestion
 
-The detector does not hand the model unrestricted database access. Once an attention item is accepted, a context service makes specific calls through the provider interfaces using the effective `Principal`.
+Scenario A is event-driven rather than polling-driven.
 
-Authorization is intentionally enforced inside each provider adapter. This matters because filtering an already-fetched result after the fact is not a real least-privilege boundary: the sensitive data has already entered the process/model context. The provider returns a typed denial if the principal lacks the relevant read scope.
+A real mail adapter, webhook, or provider subscription hands a received message to `MailIngress.received(principalId, mail)`. The demo simulates that callback after inserting the message into its fake mailbox.
 
-Each retrieved fact becomes an immutable `EvidenceSnapshot` with provider, source ID, observed time, and payload. The complete snapshots enter audit/run storage. Only the typed set is sent to the planner.
+Every incoming email crossing this boundary is immediately analyzed by the configured `MailTriage` AI service. The model receives only the message and the names/descriptions of installed mail routes and returns:
 
-## 4. Planner as an intent compiler
+```text
+IgnoreMail
+RouteMail(route)
+```
 
-The planner is best understood as an intent compiler. It converts noisy, heterogeneous evidence into one small typed algebra:
+This model is a semantic router, not an agent executor. It cannot call ERP, create a PO, approve a plan, or dynamically register capabilities. A route returned by the model is independently validated against `MailRouteCatalog`.
+
+If mail is routed, the registered domain handler performs deterministic checks against current enterprise state. For the purchasing route, the handler verifies inventory pressure, the referenced open PO, and near-term production demand before it creates a durable `AttentionItem`. The new attention is passed directly to `AgentHarness.propose`, so a high-value email can wake the full agent immediately rather than waiting for a scan interval.
+
+A relevant email therefore normally produces two bounded AI calls:
+
+1. **mail triage** — fast semantic relevance/routing;
+2. **planning** — after the system has established actionable attention and gathered richer permission-scoped evidence.
+
+Irrelevant mail incurs only the first call.
+
+This choice optimizes responsiveness and coverage. At production scale it also creates explicit obligations: webhook/event dedupe, backpressure, concurrency limits, model quotas, cost observability, and an approved privacy/data-residency boundary for mail content. `MailTriage` is an injectable service specifically so an organization may use a cheaper classifier, private model, or on-prem model without changing event orchestration.
+
+## 4. Durable attention and permission-scoped context
+
+An event handler converts a credible operational condition into an `AttentionItem`. Attention has a durable dedupe key backed by a database uniqueness constraint, so redelivery cannot create repeated work.
+
+The generic `AgentHarness` does not switch on purchasing versus quality. It resolves a `ContextResolver` by attention kind through `ContextResolverCatalog`. The installed resolver then makes specific provider calls under the effective `Principal`.
+
+Authorization is intentionally enforced inside provider adapters. Filtering unauthorized records only after retrieval is not true least privilege because sensitive data has already crossed into the process/model context. ERP, mail, and calendar providers therefore reject reads the principal is not allowed to perform.
+
+Each retrieved fact becomes an immutable `EvidenceSnapshot` with provider, source ID, observed time, and payload. Those snapshots are persisted with the run and audit trail before planning.
+
+## 5. Planner as an intent compiler
+
+The second AI boundary is the planner. It receives an attention kind, detector payload, and permission-filtered evidence and compiles them into a small typed intent algebra:
 
 ```text
 NoAction
@@ -49,118 +74,124 @@ EnterWorkflow(purchasing.reroute-po, parameters)
 ProposedActions([bounded action...])
 ```
 
-It has no tool handles. Structured output is decoded against Effect Schema, and evidence references are checked against the supplied evidence IDs after generation.
+The planner has no tool handles. Structured generation is decoded by Effect Schema, and every returned evidence reference is checked against the supplied snapshot IDs.
 
-This makes prompt injection materially less powerful. An email may still persuade the model to recommend something incorrect, but it cannot give the model a hidden method for creating a PO. The next component—the policy gate—receives the typed recommendation and independently applies business rules.
+This keeps prompt injection away from authority. A malicious or misleading email may influence semantic interpretation, but it cannot supply a hidden method for creating a PO. A poor recommendation still has to survive deterministic policy, human approval, workflow invariants, and runtime authorization.
 
-This is also why the purchasing path is a workflow rather than six model tool calls. Once the intent “reroute this PO to this approved alternate” is accepted, the exact ordering, compensation, idempotency, and restart semantics are business logic and should not be re-decided by a probabilistic model at every step.
+Once a high-risk purchasing intent is accepted, the model no longer controls ordering. The six reroute steps are business logic and must not be re-decided probabilistically at each node.
 
-## 5. Authorization and approval model
+## 6. Policy and approval
 
-A `Principal` carries scopes, manager/backup relationships, and an approval limit. The gate performs plan-level checks before any approval is requested.
+The generic `Gate` has two universal responsibilities: no-action handling and immutable plan hashing. Business authorization is delegated to a composable `PolicyEngine` assembled by the application.
 
-For the reroute path it verifies the write scopes, verifies that the original PO actually contains the proposed part, requires the alternate supplier to differ from the incumbent supplier, confirms that the proposed supplier is approved for the exact part, finds an approved price, computes the replacement PO value, and determines whether the user's authority is sufficient. The intentionally cheaper `S-Q` supplier exists in the data but is unapproved; a model that selects it is rejected regardless of its rationale.
+The current installed rules include:
 
-Every write still goes through `ToolRuntime`, which rechecks the principal's current scopes immediately before execution. The integration test revokes `erp:po:create` after the planning boundary and proves that the runtime blocks the write. This closes a time-of-check/time-of-use gap between plan approval and execution.
+- workflow write-scope requirements;
+- purchasing reroute integrity and supplier qualification;
+- monetary authority and manager routing;
+- bounded-action write-scope requirements.
 
-Approval is plan-level. The gate hashes the typed recommendation with SHA-256. The durable approval record stores that hash, policy reason, requested/assigned approver, and decision. Before execution the harness evaluates policy again. It rejects execution if either the plan hash or the currently required approver no longer matches the approval.
+The purchasing rule verifies that the original PO contains the proposed part, that the alternate differs from the incumbent supplier, that the alternate is approved for that part, that a price exists, and that the effective user has sufficient monetary authority or the plan is routed to the correct manager.
 
-Approval waiting is an Effect Workflow backed by a `DurableDeferred`, so the process does not need to stay alive while a human decides. Backup routing is modeled separately against calendar OOO state; changing who is assigned does not silently alter the approved plan itself.
+This structure is intentionally different from replacing `if` with abstract syntax for aesthetic reasons. Local guard clauses remain inside a policy rule because they express that rule. What disappeared is kernel branching whose purpose was to select which domain implementation exists.
 
-## 6. Durable workflow and side-effect semantics
+Every agent-originated write still requires plan-level approval. The typed recommendation is hashed with SHA-256. The durable approval stores that hash, effective user, requested/assigned approver, policy reason, reviewer, and decision. Before execution, policy is evaluated again; a changed hash or changed required approver makes the old approval stale.
 
-`purchasing.reroute-po@1` has six named activities:
+Approval waiting is an Effect Workflow backed by durable workflow primitives. Backup routing checks calendar OOO state and can reassign a still-pending approval without mutating the plan itself.
 
-1. confirm alternate supplier approval;
-2. confirm lead time against production;
+## 7. Recommendation execution and durable workflow
+
+`AgentHarness` does not import the purchasing workflow. Once an approved recommendation is ready to execute, it delegates to the injected `RecommendationExecutor`.
+
+The application executor interprets the typed recommendation. A high-risk workflow intent enters the registered purchasing workflow; bounded actions execute sequentially through `ToolRuntime`. The kernel therefore stays stable as business execution capabilities evolve.
+
+`purchasing.reroute-po@1` has six fixed activities:
+
+1. confirm the alternate supplier is approved and genuinely different;
+2. confirm lead time meets production;
 3. create the replacement PO;
-4. cancel the old PO;
+4. cancel/reduce the old PO;
 5. notify production;
 6. schedule the next-Tuesday arrival check.
 
-The first workflow activity repeats the original-PO and true-alternate checks even though policy already performed them. That is deliberate defense in depth: direct/internal workflow execution cannot bypass a business invariant merely because the normal caller would have gated it.
+Mutable reads and side effects that affect branching live inside durable activities. Mutating activities have compensation where a meaningful inverse exists: cancel the replacement PO, restore the old PO state, emit a corrective production message, and cancel scheduled follow-up work.
 
-Activities that mutate state have compensation where a meaningful inverse exists. A failed later step can cancel the newly created PO, restore the old PO status, emit a correction, and cancel scheduled follow-up work.
+Workflow identity includes the durable agent `runId` plus business object IDs. That prevents a fresh demo or future agent run from accidentally replaying a historically completed execution while preserving resume semantics for the same run.
 
-Workflow identity includes the durable agent `runId` plus the original PO and production order. This was an important hardening detail: using only the business object IDs would cause a deliberately reset demo to collide with a completed historical workflow and replay it instead of creating a clean new execution.
+Effect Workflow provides orchestration/activity replay. `ToolRuntime` independently persists idempotency keys/results for side effects. That defense in depth is intentional: exactly-once behavior cannot be assumed across arbitrary external SaaS/ERP systems. Production adapters should propagate the same idempotency token whenever their upstream API supports it and reconcile otherwise.
 
-Effect Workflow provides durable activity replay, but the implementation also protects each side effect with `ToolRuntime` idempotency. The idempotency key/result is persisted separately. This defense-in-depth matters because exactly-once effects cannot be assumed across arbitrary external systems; production adapters would use the same key as a provider request/idempotency token wherever supported.
+The restart test is adversarial: a child Bun process reaches replacement-PO creation and is terminated with real `SIGKILL`. A separate Bun process opens the same SQLite state and resumes. The test verifies no duplicate replacement PO exists.
 
-The restart test is intentionally adversarial. A child Bun process executes through the PO-creation activity and then receives a real `SIGKILL`. The parent starts a separate Bun process against the same SQLite file. The workflow resumes and the test asserts that only one replacement PO exists. This validates persistence across process memory loss rather than merely catching an exception in the same runtime.
+## 8. Scheduling and re-entry
 
-## 7. Scheduling and re-entry
+The reroute persists a next-Tuesday arrival check rather than ending after its initial mutations. `ScheduledWork` is durable; when due, the dispatcher can create new attention and return work to the same agent loop.
 
-The reroute does not end when the initial mutation succeeds. It schedules a check for the next Tuesday. `ScheduledWork` is durable; a dispatcher finds due work and returns it to the same attention loop.
+The challenge uses a persisted virtual `BusinessClock` so a multi-day process is deterministic and the demo can advance from Wednesday to Tuesday instantly. Business virtual time is intentionally distinct from workflow-runtime durability.
 
-The demo uses a virtual `BusinessClock` stored in SQLite. That keeps a multi-day scenario deterministic and lets the test/demo advance from Wednesday to Tuesday without sleeping for six real days. The clock is an explicit domain service rather than scattered `Date.now()` calls, which also makes workflow business-time reads auditable and testable.
+## 9. Audit and observability
 
-## 8. Audit and observability
+The audit API is append-only. Events carry run/trace identity, actor, effective user, timestamp, evidence, and structured data.
 
-The audit log is append-only at the application API. Events carry a run ID and trace ID, actor, effective user, timestamp, evidence snapshots where applicable, and structured data.
+Mail ingress produces `mail.received`, `mail.triaged`, and `mail.routed`. The spawned agent run then records context, planner recommendation, policy result, approval, execution start/completion, and concrete tool operations. `ToolRuntime` records tool name, idempotency key, validated input, result/replay/denial/failure under the correlated run.
 
-The important distinction is between **evidence** and **decision**. `context.gathered` preserves the observed facts. `planner.recommendation` records the model/model version and the evidence IDs it used. `gate.evaluated` records deterministic policy. Approval and execution events then make the human and side-effect history visible. The demo exporter emits newline-delimited JSON for a run.
+The Scenario A exporter can combine the mail-event identity with the spawned agent-run identity into one NDJSON recording, so a reviewer can reconstruct the complete causal chain from received supplier email through enterprise writes.
 
-Effect spans are named around planner generation, tools, workflows, and higher-level harness operations. The submission keeps telemetry local rather than requiring an external collector, but the Effect service boundary allows OTLP or another sink to be added without changing domain code.
+Effect spans surround AI, tools, workflows, and orchestration. The demo intentionally does not require an external OTLP collector, but the service boundaries allow a production telemetry sink without changing business logic.
 
-## 9. Evaluation strategy
+## 10. Evaluation strategy
 
-The planner is evaluated separately from the safety kernel. Five versioned benchmark cases are run three times each. Deterministic scoring checks structural behavior and grounding, not prose similarity. Stored runs can be replay-scored without another API call.
+Model quality and system safety are evaluated separately.
 
-This matters because a safe harness should not conflate “model quality” with “system safety.” A planner can fail a benchmark while the deterministic gate still prevents a forbidden write. Conversely, a planner can pass every fixture while a broken tool boundary would still be unacceptable. CI therefore validates the deterministic invariants independently of an external API key.
+The planner benchmark has five versioned fixtures × three live repetitions. Deterministic scoring checks recommendation variant, workflow, critical workflow parameters such as `alternateSupplierId`, required actions/evidence, and forbidden values. Stored recommendations can be replay-scored without another model call. No LLM judge is used.
 
-The current integration suite covers durable trigger dedupe, unapproved-supplier rejection, rejection of a no-op incumbent-supplier reroute, runtime scope revocation, backup approver routing, workflow run identity/replay, and real process death/recovery. CI runs strict TypeScript first and then the Bun-native tests against the actual `bun:sqlite` driver, followed by the full deterministic demo.
+Mail triage is separately tested at the ingress boundary: irrelevant mail is ignored, supplier-delay mail routes to `purchasing.supply-risk` and immediately starts exactly one agent run, and redelivery starts no second run.
 
-## 10. Production path and tradeoffs
-
-The demo makes several deliberate simplifications. It is a single process except for the crash fixture; enterprise providers share one SQLite database; identity is represented by a seeded principal rather than an OAuth/SSO token exchange; and the audit table is locally append-only rather than cryptographically anchored or WORM-backed.
-
-A production deployment would preserve the interfaces while changing the edges:
-
-- real ERP/mail/calendar adapters with delegated credentials and provider-side authorization;
-- a managed SQL database for harness/workflow state;
-- KMS-backed secrets and service identity;
-- an approval UI or integration with the organization's workflow system;
-- provider-native idempotency keys and reconciliation jobs;
-- an external append-only audit/telemetry sink;
-- rate limits, quotas, and per-tool concurrency controls;
-- benchmark gates before planner/model rollout.
-
-The most important production property is already represented in the demo: none of those infrastructure replacements require granting the model more authority. The planner stays a typed recommendation boundary, and the deterministic safety kernel stays between the model and enterprise side effects.
+Safety/durability integration tests independently cover supplier policy, no-op reroute rejection, runtime permission revocation, backup approval routing, workflow identity/replay, and real process death/recovery. CI runs strict TypeScript, all Bun-native integration tests, the deterministic end-to-end demo, and audit-artifact generation without requiring an external model secret.
 
 ## 11. Identity and authentication
 
-The demo intentionally models **authorization state**, not a fake OAuth server. A seeded `Principal` is the effective user and carries the scopes, reporting chain, backup approver, and monetary authority used by providers, policy, approvals, and tools. That is enough to exercise propagation and enforcement without disguising fixture code as real identity infrastructure.
+The demo models authorization state rather than pretending a seeded table is a real OAuth server. A `Principal` represents the effective user and carries scopes, reporting relationships, backup approver, and monetary authority.
 
-In production the principal would be constructed only after authenticating a human or workload through the organization's IdP. For an interactive employee agent, the preferred path is OIDC/SAML SSO into the agent service followed by short-lived delegated connector credentials. The harness should preserve both the authenticated actor and the effective user in every run. Connector calls should use delegated credentials where possible rather than a shared omnipotent service token. Service-to-service calls would use workload identity and mTLS or equivalent platform identity.
+In production, a principal should only be constructed after authenticating a human/workload through the organization's IdP. Employee-facing access would typically use OIDC/SAML SSO plus short-lived delegated connector credentials. Service-to-service calls should use workload identity. Every run should preserve authenticated actor and effective user separately where delegation exists.
 
-The important invariant is that authentication happens before a `Principal` enters the harness and authorization happens again at every data/side-effect boundary. A model never chooses or manufactures its own identity. Approval decisions also require an authenticated reviewer identity, and the durable approval verifies that reviewer against the currently assigned approver before resolving the wait.
+Authentication precedes entry to the harness; authorization is then enforced again at every read/write boundary. AI never manufactures identity. Human approvals also require authenticated reviewer identity and are validated against the currently required approver.
 
 ## 12. Long-term memory
 
-Long-term memory is deliberately narrower than “store every conversation in a vector database.” The durable memory that matters for this class of enterprise agent is structured operational memory: attention items, run snapshots, evidence, approval state, workflow state, scheduled work, idempotency records, and audit history.
+Durable memory here means operational state required for correctness: attention, run snapshots, evidence, approval state, workflow state, scheduled work, idempotency records, and audit history.
 
-Those records answer questions such as “what did the agent know when it proposed this?”, “was this plan already executed?”, “which approval authorized the write?”, and “what must resume after a restart?” without semantic retrieval or model inference.
+This intentionally avoids treating an opaque vector store as authority. High-value facts used to approve a write are re-read from the relevant system of record and snapshotted into the current run.
 
-A production system could add user preferences or summarized historical context, but that memory would be a separate, permission-aware provider with retention and provenance rules. It would never silently broaden the user's current connector permissions. High-value facts used to authorize a write would still be re-read from the system of record and snapshotted into the current run rather than trusted from stale semantic memory.
+A production system may add permission-aware user preferences or semantic historical memory as another provider, with explicit provenance/retention rules. Such memory must never silently broaden the current principal's connector permissions.
 
 ## 13. Scaling to thousands of employees
 
-The current single-process/SQLite deployment is intentionally optimized for reviewer portability, not fleet scale. The service boundaries are designed so the execution model can scale without changing domain code.
+The demo's one-process SQLite deployment optimizes reviewer portability, not fleet scale. The architecture scales around events, attention items, agent runs, workflow instances, and connector calls—not chat sessions.
 
-At thousands of employees, the main scaling units are **attention items, agent runs, workflow instances, and connector calls**, not chat sessions. A production deployment would move harness and workflow persistence to managed SQL, run stateless detector/planner/API workers horizontally, and use Effect Cluster or another durable routing layer to distribute workflow execution. Scheduled work would be partitioned by due time/tenant, and connector concurrency would be rate-limited per upstream system and organization.
+A production deployment would use provider webhooks/subscriptions to feed ingress, durable/event-queue buffering before workers, managed SQL for harness/workflow state, horizontal stateless API/triage/planner workers, and distributed durable workflow execution. Mail triage specifically needs per-tenant backpressure and concurrency quotas because every inbound email intentionally invokes AI.
 
-Tenant and employee isolation would be explicit in every persistence key and query. Provider credentials would be scoped per user/organization, policy data would be cached with short lifetimes and versioned invalidation, and expensive LLM work would be bounded by per-user/organization quotas. The dedupe key and idempotency-key model already prevents horizontal workers from turning duplicate events/retries into duplicate writes; in production the underlying database constraints remain the final arbiter.
+Tenant/user isolation belongs in every persistence key/query and credential boundary. Provider rate limits must be enforced per upstream/organization. Model usage should have per-tenant quotas and telemetry. Duplicate provider events must be collapsed under stable provider event/message IDs before downstream work.
 
-The audit/event stream can fan out asynchronously to observability, compliance, and evaluation consumers. None of those consumers need to sit on the critical write path. This keeps the authorization/approval/tool path small while still allowing organization-wide analytics and evaluation.
+The existing attention dedupe and tool idempotency model remains useful under horizontal concurrency because database constraints—not process memory—are the final arbiter. Audit/observability/evaluation consumers can fan out asynchronously and stay off the privileged write path.
 
-## 14. Would a graph-first deterministic workflow engine be designed differently?
+## 14. Production adapter path
 
-Yes, but mostly at the authoring and scheduling layer rather than at the safety boundaries.
+The SQLite ERP/mail/calendar implementations are demo adapters behind provider contracts. A real deployment can substitute SAP/Oracle/Dynamics and Microsoft Graph/Gmail/Google Calendar without changing the harness kernel.
 
-This submission expresses Scenario A as a sequential Effect Workflow because the challenge requires a fixed six-step order and the desired API is intentionally close to normal program control flow. Activities are durable nodes, compensation is attached to mutations, and replay makes the sequential definition restart-safe. For this workflow, a graph representation would add ceremony without adding reachable behavior.
+For email specifically, a Microsoft Graph or Gmail integration would persist/fetch the message as appropriate and invoke `MailIngress.received` from its subscription/webhook handler. It would not reproduce purchasing logic inside the connector.
 
-A graph-first engine becomes valuable when workflows have explicit parallel branches, joins, conditional subgraphs, human waits at multiple branches, reusable subgraphs, or graph-level visualization/version migration requirements. In that design, the definition would likely compile a typed DAG/state machine into durable Effect Workflow execution. Node IDs and edge conditions would become part of the persisted workflow version, and the engine would validate acyclicity/reachability (or explicitly modeled loops) before deployment.
+Likewise, OpenRouter is an environment choice. `MailTriage` and `Planner` are independent injectable services; customers can select separate providers/models for each boundary.
 
-The **planner, gate, approval binding, tool catalog, idempotency, evidence, and audit contracts would not change**. The graph engine would only change how an already-authorized business process is orchestrated. That separation is intentional: switching from sequential code-first workflow authoring to a DAG should not grant the model additional authority or require rewriting connector security.
+Production infrastructure would also replace local SQLite with managed SQL, local append-only audit with an appropriate durable compliance sink, local secrets with KMS/workload identity, and CLI approval with an enterprise approval surface. None of those changes should grant the model additional authority.
 
-For Scenario A specifically, I would keep the current code-first definition. If the product grew into a general enterprise workflow platform, I would add a graph authoring layer that compiles onto the same Effect Workflow activities rather than replacing the durable runtime or safety kernel.
+## 15. Would a graph-first deterministic workflow engine be designed differently?
+
+Yes, mainly at the authoring/scheduling layer rather than at the safety boundaries.
+
+Scenario A is sequential with a required fixed order, so Effect Workflow expressed as ordinary typed control flow is a good fit. A graph representation would add little reachable behavior here.
+
+A graph-first engine becomes more useful with parallel branches, joins, conditional subgraphs, multiple human waits, reusable subgraphs, visualization, or workflow-version migration. I would then compile a typed graph/DAG into the same durable activity/runtime concepts and persist node/edge version information.
+
+The **event ingress, planner, context catalog, policy engine, approval binding, tool catalog, idempotency, evidence, and audit contracts would not change**. Changing workflow authoring representation must not grant AI more authority or require reworking connector security.
+
+For this challenge I would keep the current code-first workflow. For a general enterprise workflow product, I would add graph authoring on top of the same durable runtime and safety kernel rather than replacing them.
