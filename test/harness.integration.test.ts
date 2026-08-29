@@ -6,9 +6,13 @@ import { ReroutePurchaseOrderWorkflow } from "../src/domain/purchasing/workflows
 import { AttentionItem } from "../src/harness/agent/context/attention-item"
 import { AttentionRepository } from "../src/harness/agent/context/attention-repository"
 import { EnterWorkflow, ReroutePurchaseOrderParameters } from "../src/harness/agent/planning/recommendation"
+import { ApprovalRecord } from "../src/harness/approvals/model/approval"
+import { BackupRouting } from "../src/harness/approvals/routing/backup-routing"
+import { ApprovalRepository } from "../src/harness/approvals/service/approval-repository"
 import { Gate } from "../src/harness/authorization/policy/gate"
 import { Principal } from "../src/harness/authorization/permissions/principal"
 import { PrincipalDirectory } from "../src/harness/authorization/permissions/principal-directory"
+import { BusinessClock } from "../src/harness/scheduling/model/business-clock"
 import { ToolRuntime } from "../src/harness/tools/runtime/tool-runtime"
 import { migrate } from "../src/infra/database/migrations/migrate"
 import { resetDemo } from "../src/infra/database/seed/reset-demo"
@@ -84,6 +88,32 @@ describe("enterprise harness safety and durability", () => {
       }).pipe(Effect.match({ onFailure: () => true, onSuccess: () => false }))
     }))
     expect(denied).toBe(true)
+  })
+
+  test("routes a pending approval to the configured backup when the primary is OOO tomorrow", async () => {
+    await setup()
+    const result = await run(Effect.gen(function*() {
+      const approvals = yield* ApprovalRepository
+      const routing = yield* BackupRouting
+      const clock = yield* BusinessClock
+      yield* clock.advanceTo("2026-09-02T17:00:00-06:00")
+      yield* approvals.create(new ApprovalRecord({
+        approvalId: "A-BACKUP-1",
+        runId: "run-backup-fixture",
+        effectiveUserId: "u-101",
+        requestedApproverId: "u-101",
+        assignedApproverId: "u-101",
+        planHash: "fixture-hash",
+        planJson: "{}",
+        policyReason: "test fixture",
+        status: "pending",
+        createdAt: "2026-09-02T16:30:00-06:00"
+      }))
+      const routed = yield* routing.routeIfOutTomorrow("A-BACKUP-1")
+      const record = yield* approvals.get("A-BACKUP-1")
+      return { routed, assignedApproverId: record.assignedApproverId }
+    }))
+    expect(result).toEqual({ routed: true, assignedApproverId: "u-102" })
   })
 
   test("replays the same workflow run idempotently but allows a new agent run", async () => {
