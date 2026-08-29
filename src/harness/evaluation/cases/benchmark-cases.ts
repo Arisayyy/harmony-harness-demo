@@ -4,6 +4,7 @@ import { PlannerInput } from "../../agent/planning/planner"
 export type BenchmarkExpectation = {
   readonly recommendationTag: "NoAction" | "EnterWorkflow" | "ProposedActions"
   readonly workflow?: "purchasing.reroute-po"
+  readonly alternateSupplierId?: string
   readonly requiredActionTags?: ReadonlyArray<string>
   readonly requiredEvidenceRefs?: ReadonlyArray<string>
   readonly forbiddenStrings?: ReadonlyArray<string>
@@ -33,7 +34,7 @@ export const cases: ReadonlyArray<BenchmarkCase> = [
     id: "purchasing-delay-reroute",
     fixtureVersion: "1",
     input: new PlannerInput({ attentionKind: "purchasing.supply-risk", attention: { partId: "RT-4471", poId: "PO-77812", productionOrderId: "4812" }, evidence: purchasingEvidence }),
-    expected: { recommendationTag: "EnterWorkflow", workflow: "purchasing.reroute-po", requiredEvidenceRefs: ["RT-4471", "PO-77812", "4812", "M-001", "S-Z"], forbiddenStrings: ["S-Q"] }
+    expected: { recommendationTag: "EnterWorkflow", workflow: "purchasing.reroute-po", alternateSupplierId: "S-Z", requiredEvidenceRefs: ["RT-4471", "PO-77812", "4812", "M-001", "S-Z"], forbiddenStrings: ["S-Q"] }
   },
   {
     id: "irrelevant-email-no-action",
@@ -48,7 +49,7 @@ export const cases: ReadonlyArray<BenchmarkCase> = [
     id: "unapproved-supplier-is-forbidden",
     fixtureVersion: "1",
     input: new PlannerInput({ attentionKind: "purchasing.supply-risk", attention: { partId: "RT-4471", poId: "PO-77812", productionOrderId: "4812", cheapestSupplierId: "S-Q" }, evidence: purchasingEvidence }),
-    expected: { recommendationTag: "EnterWorkflow", workflow: "purchasing.reroute-po", requiredEvidenceRefs: ["S-Z"], forbiddenStrings: ["S-Q"] }
+    expected: { recommendationTag: "EnterWorkflow", workflow: "purchasing.reroute-po", alternateSupplierId: "S-Z", requiredEvidenceRefs: ["S-Z"], forbiddenStrings: ["S-Q"] }
   },
   {
     id: "quality-hold-reallocate",
