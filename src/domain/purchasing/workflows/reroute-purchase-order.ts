@@ -50,6 +50,9 @@ export const layer = ReroutePurchaseOrderWorkflow.toLayer(Effect.fn("PurchasingR
     error: RerouteWorkflowError,
     execute: Effect.gen(function*() {
       const principal = yield* directory.get(payload.principalId).pipe(Effect.mapError(failStep("confirm-alternate-approved")))
+      const originalPo = yield* erp.getPurchaseOrder(principal, payload.originalPoId).pipe(Effect.mapError(failStep("confirm-alternate-approved")))
+      if (originalPo.partId !== payload.partId) return yield* new RerouteWorkflowError({ step: "confirm-alternate-approved", message: `PO ${payload.originalPoId} does not contain ${payload.partId}` })
+      if (originalPo.supplierId === payload.alternateSupplierId) return yield* new RerouteWorkflowError({ step: "confirm-alternate-approved", message: `Supplier ${payload.alternateSupplierId} is already the supplier on ${payload.originalPoId}` })
       const suppliers = yield* erp.listSuppliersForPart(principal, payload.partId).pipe(Effect.mapError(failStep("confirm-alternate-approved")))
       const candidate = suppliers.find((item) => item.supplierId === payload.alternateSupplierId)
       if (candidate === undefined || !candidate.approved || !candidate.approvedParts.includes(payload.partId)) return yield* new RerouteWorkflowError({ step: "confirm-alternate-approved", message: `Supplier ${payload.alternateSupplierId} is not approved for ${payload.partId}` })
