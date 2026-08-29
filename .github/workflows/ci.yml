@@ -14,9 +14,7 @@ jobs:
         with:
           bun-version: 1.4.0
       - name: Install dependencies
-        run: bun install
-      - name: Lockfile capture
-        run: cat bun.lock
+        run: bun install --frozen-lockfile
       - name: Typecheck
         run: bun run typecheck
       - name: Tests
