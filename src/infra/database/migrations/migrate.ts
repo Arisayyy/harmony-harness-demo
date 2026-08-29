@@ -97,6 +97,14 @@ export const migrate = Effect.gen(function*() {
     now TEXT NOT NULL
   )`
 
+  yield* sql`CREATE TABLE IF NOT EXISTS event_receipts (
+    source TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    claim_id TEXT NOT NULL,
+    received_at TEXT NOT NULL,
+    PRIMARY KEY (source, event_id)
+  )`
+
   yield* sql`CREATE TABLE IF NOT EXISTS attention_items (
     attention_id TEXT PRIMARY KEY,
     detector TEXT NOT NULL,
