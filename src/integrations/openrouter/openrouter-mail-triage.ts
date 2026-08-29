@@ -1,7 +1,8 @@
 import { OpenRouterLanguageModel } from "@effect/ai-openrouter"
-import { Clock, Data, Effect, Layer } from "effect"
+import { Data, Effect, Layer } from "effect"
 import { LanguageModel } from "effect/unstable/ai"
-import { MailTriage, MailTriageDecision } from "../../harness/events/triage/mail-triage"
+import type { InboundMail } from "../../harness/events/model/inbound-mail"
+import { MailTriage, MailTriageDecision, type MailRouteSummary } from "../../harness/events/triage/mail-triage"
 import { AppConfig } from "../../infra/config/app-config"
 
 export class MailTriageRouteError extends Data.TaggedError("MailTriageRouteError")<{ readonly route: string }> {}
@@ -22,19 +23,19 @@ export const layer = Layer.effect(
     const config = yield* AppConfig
     const model = yield* OpenRouterLanguageModel.model(config.openRouterModel, { temperature: 0 }).captureRequirements
 
-    const triage = Effect.fn("MailTriage.triage")(function*(mail, routes) {
-      const started = yield* Clock.monotonicTimeNanos
+    const triage = Effect.fn("MailTriage.triage")(function*(mail: InboundMail, routes: ReadonlyArray<MailRouteSummary>) {
       const languageModel = yield* LanguageModel.LanguageModel
       const response = yield* languageModel.generateObject({
         objectName: "mail_triage_decision",
         schema: MailTriageDecision,
         prompt: `${system}\n\nAvailable routes:\n${JSON.stringify(routes)}\n\nInbound email:\n${JSON.stringify(mail)}`
       })
-      yield* Clock.monotonicTimeNanos.pipe(Effect.map((ended) => Number(ended - started) / 1_000_000), Effect.annotateCurrentSpan("mail.triage.latency_ms"))
-      if (response.value._tag === "RouteMail" && !routes.some((route) => route.route === response.value.route)) {
-        return yield* new MailTriageRouteError({ route: response.value.route })
+      const decision = response.value
+      if (decision._tag === "RouteMail") {
+        const knownRoute = routes.some((route) => route.route === decision.route)
+        if (!knownRoute) return yield* new MailTriageRouteError({ route: decision.route })
       }
-      return response.value
+      return decision
     }, Effect.provide(model), Effect.withSpan("mail.triage", { attributes: { "mail.triage.version": triageVersion, "ai.model": config.openRouterModel } }))
 
     return MailTriage.of({ version: triageVersion, model: config.openRouterModel, triage })
