@@ -6,9 +6,14 @@ const evidenceIds = (input: PlannerInput) => input.evidence.map((item) => item.s
 
 const purchasing = (input: PlannerInput) => {
   const attention = input.attention as { partId: string; poId: string; productionOrderId: string }
+  const originalPo = input.evidence.find((item) => {
+    const payload = item.payload as { poId?: string; supplierId?: string }
+    return payload.poId === attention.poId
+  })
+  const originalSupplierId = (originalPo?.payload as { supplierId?: string } | undefined)?.supplierId
   const approvedSupplier = input.evidence.find((item) => {
     const payload = item.payload as { supplierId?: string; approved?: boolean; approvedParts?: ReadonlyArray<string> }
-    return payload.approved === true && payload.approvedParts?.includes(attention.partId)
+    return payload.supplierId !== originalSupplierId && payload.approved === true && payload.approvedParts?.includes(attention.partId)
   })
   const supplierId = (approvedSupplier?.payload as { supplierId?: string } | undefined)?.supplierId
   if (supplierId === undefined) {
