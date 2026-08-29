@@ -15,20 +15,22 @@ export class InteractiveTerminalRequired extends Data.TaggedError("InteractiveTe
   readonly message: string
 }> {}
 
+const colorEnabled = process.stdout.isTTY && process.env.TERM !== "dumb" && process.env.NO_COLOR === undefined
+const terminalCode = (value: string) => colorEnabled ? value : ""
 const ansi = {
-  reset: "\u001b[0m",
-  bold: "\u001b[1m",
-  dim: "\u001b[2m",
-  gray: "\u001b[90m",
-  white: "\u001b[97m",
-  blue: "\u001b[38;5;75m",
-  violet: "\u001b[38;5;141m",
-  cyan: "\u001b[36m",
-  green: "\u001b[32m",
-  red: "\u001b[31m",
-  yellow: "\u001b[33m",
-  panel: "\u001b[48;5;235m",
-  clear: "\u001b[2J\u001b[H"
+  reset: terminalCode("\u001b[0m"),
+  bold: terminalCode("\u001b[1m"),
+  dim: terminalCode("\u001b[2m"),
+  gray: terminalCode("\u001b[90m"),
+  white: terminalCode("\u001b[97m"),
+  blue: terminalCode("\u001b[38;5;75m"),
+  violet: terminalCode("\u001b[38;5;141m"),
+  cyan: terminalCode("\u001b[36m"),
+  green: terminalCode("\u001b[32m"),
+  red: terminalCode("\u001b[31m"),
+  yellow: terminalCode("\u001b[33m"),
+  panel: terminalCode("\u001b[48;5;235m"),
+  clear: terminalCode("\u001b[2J\u001b[H")
 } as const
 
 const maxWidth = 92
@@ -45,8 +47,8 @@ const centerText = (value: string, width: number) => {
   const text = truncate(value, width)
   return `${" ".repeat(Math.max(0, Math.floor((width - text.length) / 2)))}${text}`
 }
-const panelRow = (value: string, width: number, tone = ansi.white) => `${ansi.panel}${tone}${pad(truncate(value, width), width)}${ansi.reset}`
-const plainRow = (value: string, width: number, tone = ansi.white) => `${tone}${truncate(value, width)}${ansi.reset}`
+const panelRow = (value: string, width: number, tone: string = ansi.white) => `${ansi.panel}${tone}${pad(truncate(value, width), width)}${ansi.reset}`
+const plainRow = (value: string, width: number, tone: string = ansi.white) => `${tone}${truncate(value, width)}${ansi.reset}`
 const operatorHeader = (width: number) => {
   const left = "  harmony / operator session"
   const right = "trace live  ·  Effect 4  "

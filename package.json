@@ -3,12 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "packageManager": "bun@1.4.0",
   "engines": {
-    "bun": ">=1.4.0"
+    "bun": "=1.4.0"
   },
   "scripts": {
     "demo": "bun run src/cli/main.ts demo",
-    "demo:auto": "HARMONY_PLANNER=fixture bun run src/cli/main.ts demo --auto",
+    "demo:auto": "bun run src/cli/main.ts demo --auto",
     "benchmark": "bun run src/cli/main.ts benchmark live",
     "benchmark:replay": "bun run src/cli/main.ts benchmark replay",
     "test": "bun test",

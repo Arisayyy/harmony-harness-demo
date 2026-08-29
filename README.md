@@ -107,18 +107,20 @@ The thin files under `src/infra/runtime/` are compatibility re-exports; the actu
 
 ## Run it
 
-Requirements: Bun 1.3.12 or newer and an OpenRouter API key for the live AI path.
-
-For convenience, this review copy already has an OpenRouter API key in `.env` with a $1 spending limit ;). If you replace it, please keep the same kind of tight limit and never commit a production credential.
+Requirements: **Bun 1.4.0 exactly** and a UTF-8 terminal. The version is pinned in `package.json` and `.tool-versions`; using a different Bun release is unsupported because runtime changes can affect the native SQLite and interactive terminal paths.
 
 ```bash
+cp .env.example .env     # use Copy-Item on PowerShell
+# Add OPENROUTER_API_KEY only when using the live AI path.
 bun install --frozen-lockfile
 bun run check
 bun run demo             # interactive approval UI
 bun run demo:auto        # deterministic, non-interactive reviewer run
 ```
 
-On a fresh checkout without that convenience file, copy `.env.example` to `.env` and add your own limited OpenRouter key.
+`bun run demo:auto`, tests, and typechecking do not need an OpenRouter key. `bun run demo` and the live benchmark do. Keep credentials only in the ignored local `.env`; `.env.example` contains the safe placeholder values.
+
+The TUI adapts down to narrow terminal windows and uses a compact title below 70 columns. A terminal around 80 columns or wider provides the best presentation. Headless shells should use `bun run demo:auto`.
 
 Default configuration:
 

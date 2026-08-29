@@ -47,7 +47,7 @@ const outputsAt = (columns: number) => [
 ]
 
 describe("operator TUI layout", () => {
-  for (const columns of [80, 60]) {
+  for (const columns of [120, 80, 60, 40]) {
     test(`keeps every rendered line inside a ${columns}-column terminal`, () => {
       for (const output of outputsAt(columns)) {
         expect(longestVisibleLine(output)).toBeLessThan(columns)

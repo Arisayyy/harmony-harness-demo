@@ -120,4 +120,11 @@ const animateSplash = Effect.gen(function*() {
   }
 }).pipe(Effect.ensuring(Effect.sync(() => process.stdout.write(`${reset}${showCursor}${clear}`))))
 
-export const playSplash = Effect.suspend(() => process.stdout.isTTY ? animateSplash : Effect.void)
+export const playSplash = Effect.suspend(() => {
+  const supportsAnimation = process.stdout.isTTY
+    && process.env.TERM !== "dumb"
+    && process.env.NO_COLOR === undefined
+    && (process.stdout.columns ?? 0) >= 20
+    && (process.stdout.rows ?? 0) >= 10
+  return supportsAnimation ? animateSplash : Effect.void
+})

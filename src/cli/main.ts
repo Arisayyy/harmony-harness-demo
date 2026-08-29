@@ -16,6 +16,9 @@ const cli = Command.make("harmony").pipe(
   Command.withSubcommands([demo, approval, run, audit, clock, benchmark])
 )
 
-const applicationLayer = process.env.HARMONY_PLANNER === "fixture" ? fixtureLayer : liveLayer
+// `demo:auto` must work in Windows shells too, so its fixture selection is
+// derived from the CLI flag instead of an inline POSIX environment assignment.
+const useFixtureLayer = process.env.HARMONY_PLANNER === "fixture" || process.argv.includes("--auto")
+const applicationLayer = useFixtureLayer ? fixtureLayer : liveLayer
 const main = Command.run(cli, { version: "0.1.0" }).pipe(Effect.provide(applicationLayer), Effect.provide(BunServices.layer), Effect.scoped)
 Effect.runPromise(main)
