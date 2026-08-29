@@ -34,6 +34,11 @@ export const layer = Layer.effect(
 
         if (recommendation._tag === "EnterWorkflow") {
           for (const scope of ["erp:po:create", "erp:po:cancel", "production:notify", "mail:send"]) if (!hasScope(principal, scope)) missing.add(scope)
+          const originalPo = yield* erp.getPurchaseOrder(principal, recommendation.parameters.originalPoId).pipe(
+            Effect.mapError(() => new GateDenied({ reasons: ["Unable to verify the original purchase order."] }))
+          )
+          if (originalPo.partId !== recommendation.parameters.partId) return yield* new GateDenied({ reasons: ["The original purchase order does not match the proposed part."] })
+          if (originalPo.supplierId === recommendation.parameters.alternateSupplierId) return yield* new GateDenied({ reasons: ["Alternate supplier must differ from the original PO supplier."] })
           const suppliers = yield* erp.listSuppliersForPart(principal, recommendation.parameters.partId).pipe(Effect.mapError(() => new GateDenied({ reasons: ["Unable to verify alternate supplier authorization."] })))
           const supplier = suppliers.find((candidate) => candidate.supplierId === recommendation.parameters.alternateSupplierId)
           if (supplier === undefined || !supplier.approved || !supplier.approvedParts.includes(recommendation.parameters.partId)) return yield* new GateDenied({ reasons: ["Alternate supplier is not approved for the requested part."] })
