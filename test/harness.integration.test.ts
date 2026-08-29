@@ -1,7 +1,7 @@
 import * as BunServices from "@effect/platform-bun/BunServices"
+import { describe, expect, test } from "bun:test"
 import { Effect } from "effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
-import { describe, expect, it } from "vitest"
 import { ReroutePurchaseOrderWorkflow } from "../src/domain/purchasing/workflows/reroute-purchase-order"
 import { AttentionItem } from "../src/harness/agent/context/attention-item"
 import { AttentionRepository } from "../src/harness/agent/context/attention-repository"
@@ -41,7 +41,7 @@ const approvedReroute = (supplierId: string) => new EnterWorkflow({
 })
 
 describe("enterprise harness safety and durability", () => {
-  it("deduplicates attention items at the durable repository boundary", async () => {
+  test("deduplicates attention items at the durable repository boundary", async () => {
     await setup()
     const result = await run(Effect.gen(function*() {
       const repository = yield* AttentionRepository
@@ -52,7 +52,7 @@ describe("enterprise harness safety and durability", () => {
     expect(result).toEqual([true, false])
   })
 
-  it("rejects an unapproved alternate supplier before any write can execute", async () => {
+  test("rejects an unapproved alternate supplier before any write can execute", async () => {
     await setup()
     const result = await run(Effect.gen(function*() {
       const directory = yield* PrincipalDirectory
@@ -69,7 +69,7 @@ describe("enterprise harness safety and durability", () => {
     expect(result.reasons.join(" ")).toContain("not approved")
   })
 
-  it("rechecks scopes at the tool boundary after policy approval", async () => {
+  test("rechecks scopes at the tool boundary after policy approval", async () => {
     await setup()
     const denied = await run(Effect.gen(function*() {
       const directory = yield* PrincipalDirectory
@@ -86,7 +86,7 @@ describe("enterprise harness safety and durability", () => {
     expect(denied).toBe(true)
   })
 
-  it("replays the same workflow run idempotently but allows a new agent run", async () => {
+  test("replays the same workflow run idempotently but allows a new agent run", async () => {
     await setup()
     const nonce = `${process.pid}-${Date.now()}`
     const result = await run(Effect.gen(function*() {
@@ -111,7 +111,7 @@ describe("enterprise harness safety and durability", () => {
     expect(result.count).toBe(2)
   }, 20_000)
 
-  it("survives a real SIGKILL and resumes in a fresh Bun process without duplicate PO creation", async () => {
+  test("survives a real SIGKILL and resumes in a fresh Bun process without duplicate PO creation", async () => {
     await Effect.runPromise(Effect.scoped(runCrashResumeFixture.pipe(Effect.provide(BunServices.layer))))
   }, 30_000)
 })
