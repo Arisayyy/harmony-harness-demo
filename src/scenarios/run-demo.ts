@@ -1,5 +1,4 @@
 import { Console, Crypto, Effect, Schema } from "effect"
-import { SupplyRiskDetector } from "../domain/purchasing/detectors/supply-risk-detector"
 import { QualityHoldDetector } from "../domain/quality/detectors/quality-hold-detector"
 import { AgentHarness } from "../harness/agent/execution/agent-harness"
 import { Recommendation } from "../harness/agent/planning/recommendation"
@@ -10,12 +9,13 @@ import { ApprovalService } from "../harness/approvals/service/approval-service"
 import { AuditExporter } from "../harness/audit/export/audit-exporter"
 import { Principal } from "../harness/authorization/permissions/principal"
 import { PrincipalDirectory } from "../harness/authorization/permissions/principal-directory"
+import { MailIngress } from "../harness/events/runtime/mail-ingress"
 import { BusinessClock } from "../harness/scheduling/model/business-clock"
 import { FollowupDispatcher } from "../harness/scheduling/service/followup-dispatcher"
 import { ToolRuntime } from "../harness/tools/runtime/tool-runtime"
 import { migrate } from "../infra/database/migrations/migrate"
 import { resetDemo } from "../infra/database/seed/reset-demo"
-import { deliverSupplierDelay } from "./scenario-a/events"
+import { deliverIrrelevantMail, deliverSupplierDelay } from "./scenario-a/events"
 import { placeQualityHold } from "./scenario-b/events"
 import { runCrashResumeFixture } from "./failures/crash-resume"
 
@@ -31,8 +31,8 @@ export const runDemo = Effect.gen(function*() {
   yield* migrate
   yield* resetDemo
   const directory = yield* PrincipalDirectory
-  const purchasingDetector = yield* SupplyRiskDetector
   const qualityDetector = yield* QualityHoldDetector
+  const mailIngress = yield* MailIngress
   const harness = yield* AgentHarness
   const approvals = yield* ApprovalRepository
   const approvalService = yield* ApprovalService
@@ -45,21 +45,23 @@ export const runDemo = Effect.gen(function*() {
 
   yield* Console.log("\nRealTruck · Guadalajara manufacturing agent harness")
   yield* Console.log("virtual time         2026-09-02 09:00 America/Mexico_City")
-  yield* Console.log("mode                 automatic demo; writes still cross durable approval\n")
+  yield* Console.log("mode                 event-driven mail AI; writes still cross durable approval\n")
 
   const elena = yield* directory.get("u-101")
-  const before = yield* purchasingDetector.scan(elena)
-  yield* Console.log(`detector             ${before.length} purchasing risks before supplier update`)
+  const noiseMail = yield* deliverIrrelevantMail
+  const noiseResult = yield* mailIngress.received(elena.userId, noiseMail)
+  yield* Console.log(`mail AI triage       ${noiseMail.messageId} · ${noiseResult.decision._tag} · no domain agent started`)
+
   yield* countdown("supplier email in")
-  yield* deliverSupplierDelay
+  const supplierMail = yield* deliverSupplierDelay
   yield* Console.log("mail                 M-001 received · PO-77812 slips to Guadalajara dock Tuesday 9/8")
-  const purchasingItems = yield* purchasingDetector.scan(elena)
-  const attention = purchasingItems[0]
-  if (attention === undefined) return yield* Effect.die("Scenario A detector did not produce an attention item")
-  yield* Console.log(`detector             ${attention.attentionId} · projected stockout intersects production order 4812`)
-  const duplicate = yield* purchasingDetector.scan(elena)
-  yield* Console.log(`dedupe               repeated detector scan created ${duplicate.length} duplicate attention items`)
-  const scenarioARun = yield* harness.propose(attention.attentionId)
+  const ingress = yield* mailIngress.received(elena.userId, supplierMail)
+  yield* Console.log(`mail AI triage       ${ingress.decision._tag}${ingress.decision._tag === "RouteMail" ? ` → ${ingress.decision.route}` : ""}`)
+  const scenarioARun = ingress.runs[0]
+  if (scenarioARun === undefined) return yield* Effect.die("Scenario A mail event did not start an agent run")
+  const duplicate = yield* mailIngress.received(elena.userId, supplierMail)
+  yield* Console.log(`event dedupe         repeated delivery created ${duplicate.runs.length} duplicate agent runs`)
+
   const scenarioARecommendation = yield* decodeRecommendation(JSON.parse(scenarioARun.recommendationJson))
   yield* Console.log(`\nagent                ${recommendationText(scenarioARecommendation)}`)
 
