@@ -1,9 +1,9 @@
 import { Console, Effect } from "effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { ReroutePurchaseOrderWorkflow } from "../../domain/purchasing/workflows/reroute-purchase-order"
+import { layer, layerCrashAfterCreate } from "../../environments/demo/live-layer"
 import { migrate } from "../../infra/database/migrations/migrate"
 import { resetDemo } from "../../infra/database/seed/reset-demo"
-import { layer, layerCrashAfterCreate } from "../../infra/runtime/app-layer"
 
 const crash = process.argv.includes("--crash")
 const reset = process.argv.includes("--reset")
