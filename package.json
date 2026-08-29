@@ -7,7 +7,7 @@
     "demo": "bun run src/cli/main.ts demo",
     "benchmark": "bun run src/cli/main.ts benchmark live",
     "benchmark:replay": "bun run src/cli/main.ts benchmark replay",
-    "test": "vitest run",
+    "test": "bun test",
     "typecheck": "tsc --noEmit",
     "check": "bun run typecheck && bun run test"
   },
@@ -18,9 +18,7 @@
     "effect": "4.0.0-rc.112"
   },
   "devDependencies": {
-    "@effect/vitest": "4.0.0-rc.112",
     "@types/bun": "1.4.0",
-    "typescript": "5.9.2",
-    "vitest": "4.1.11"
+    "typescript": "5.9.2"
   }
 }
