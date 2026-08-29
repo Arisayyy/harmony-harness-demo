@@ -21,8 +21,13 @@ export const runCrashResumeFixture = Effect.gen(function*() {
     stdout: "inherit",
     stderr: "inherit"
   })
-  const firstCode = Number(yield* first.exitCode)
-  if (firstCode === 0) return yield* new CrashResumeFailure({ phase: "crash", exitCode: firstCode })
+  const crashed = yield* first.exitCode.pipe(
+    Effect.match({
+      onFailure: () => true,
+      onSuccess: (exitCode) => Number(exitCode) !== 0
+    })
+  )
+  if (!crashed) return yield* new CrashResumeFailure({ phase: "crash", exitCode: 0 })
 
   yield* Console.log("  restart safety     starting a fresh worker against the same SQLite state")
   const second = yield* ChildProcess.make("bun", ["run", worker], {
@@ -31,7 +36,10 @@ export const runCrashResumeFixture = Effect.gen(function*() {
     stdout: "inherit",
     stderr: "inherit"
   })
-  const secondCode = Number(yield* second.exitCode)
+  const secondCode = yield* second.exitCode.pipe(
+    Effect.map((code) => Number(code)),
+    Effect.catch(() => Effect.succeed(-1))
+  )
   if (secondCode !== 0) return yield* new CrashResumeFailure({ phase: "resume", exitCode: secondCode })
 
   yield* Console.log("  restart safety     resumed without creating a second replacement PO")
