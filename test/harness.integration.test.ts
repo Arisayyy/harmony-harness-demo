@@ -73,6 +73,23 @@ describe("enterprise harness safety and durability", () => {
     expect(result.reasons.join(" ")).toContain("not approved")
   })
 
+  test("rejects a no-op reroute back to the incumbent supplier", async () => {
+    await setup()
+    const result = await run(Effect.gen(function*() {
+      const directory = yield* PrincipalDirectory
+      const gate = yield* Gate
+      const principal = yield* directory.get("u-101")
+      return yield* gate.evaluate(principal, approvedReroute("S-Y")).pipe(
+        Effect.match({
+          onFailure: (error) => ({ failed: true as const, reasons: error.reasons }),
+          onSuccess: () => ({ failed: false as const, reasons: [] as ReadonlyArray<string> })
+        })
+      )
+    }))
+    expect(result.failed).toBe(true)
+    expect(result.reasons.join(" ")).toContain("must differ")
+  })
+
   test("rechecks scopes at the tool boundary after policy approval", async () => {
     await setup()
     const denied = await run(Effect.gen(function*() {
