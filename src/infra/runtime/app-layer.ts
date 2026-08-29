@@ -1,5 +1,8 @@
 import * as BunServices from "@effect/platform-bun/BunServices"
 import { Layer } from "effect"
+import { layer as contextResolverLayer } from "../../app/context-resolver-layer"
+import { layer as mailRouteLayer } from "../../app/mail-route-layer"
+import { layer as recommendationExecutorLayer } from "../../app/recommendation-executor-layer"
 import { layer as toolCatalogLayer } from "../../app/tool-catalog-layer"
 import { layer as supplyContextLayer } from "../../domain/purchasing/context/supply-risk-context"
 import { layer as supplyDetectorLayer } from "../../domain/purchasing/detectors/supply-risk-detector"
@@ -18,6 +21,7 @@ import { layer as auditLogLayer } from "../../harness/audit/service/audit-log"
 import { layer as gateLayer } from "../../harness/authorization/policy/gate"
 import { layer as principalDirectoryLayer } from "../../harness/authorization/permissions/principal-directory"
 import { layer as benchmarkLayer } from "../../harness/evaluation/reporting/benchmark-runner"
+import { layer as mailIngressLayer } from "../../harness/events/runtime/mail-ingress"
 import { layer as runRepositoryLayer } from "../../harness/memory/durable/run-repository"
 import { layer as businessClockLayer } from "../../harness/scheduling/model/business-clock"
 import { layer as followupLayer } from "../../harness/scheduling/service/followup-dispatcher"
@@ -28,6 +32,7 @@ import { layer as calendarLayer } from "../../integrations/calendar/sqlite-calen
 import { layer as erpLayer } from "../../integrations/erp/sqlite-erp-provider"
 import { layer as mailLayer } from "../../integrations/mail/sqlite-mail-provider"
 import { layer as openRouterClientLayer } from "../../integrations/openrouter/client"
+import { layer as mailTriageLayer } from "../../integrations/openrouter/openrouter-mail-triage"
 import { layer as plannerLayer } from "../../integrations/openrouter/openrouter-planner"
 import { layer as configLayer } from "../config/app-config"
 import { layer as databaseLayer } from "../database/database"
@@ -37,15 +42,23 @@ const build = (crashLayer: Layer.Layer<CrashControl>) => {
   const database = databaseLayer.pipe(Layer.provide(configLayer))
   const infrastructure = Layer.mergeAll(configLayer, BunServices.layer, database, crashLayer)
   const state = Layer.mergeAll(businessClockLayer, principalDirectoryLayer, attentionLayer, runRepositoryLayer, approvalRepositoryLayer, auditRepositoryLayer, erpLayer, mailLayer, calendarLayer).pipe(Layer.provideMerge(infrastructure))
-  const support = Layer.mergeAll(scheduledWorkLayer, auditLogLayer, supplyContextLayer, qualityContextLayer).pipe(Layer.provideMerge(state))
-  const catalog = toolCatalogLayer.pipe(Layer.provideMerge(support))
+  const domain = Layer.mergeAll(scheduledWorkLayer, auditLogLayer, supplyContextLayer, qualityContextLayer, supplyDetectorLayer, qualityDetectorLayer).pipe(Layer.provideMerge(state))
+  const contextResolvers = contextResolverLayer.pipe(Layer.provideMerge(domain))
+  const mailRoutes = mailRouteLayer.pipe(Layer.provideMerge(domain))
+  const catalog = toolCatalogLayer.pipe(Layer.provideMerge(domain))
   const safety = Layer.mergeAll(toolRuntimeLayer, gateLayer).pipe(Layer.provideMerge(catalog))
   const engine = workflowEngineLayer.pipe(Layer.provideMerge(safety))
   const workflows = Layer.mergeAll(approvalWorkflowLayer, rerouteWorkflowLayer).pipe(Layer.provideMerge(engine))
+  const executor = recommendationExecutorLayer.pipe(Layer.provideMerge(workflows))
   const aiClient = openRouterClientLayer.pipe(Layer.provideMerge(workflows))
-  const planner = plannerLayer.pipe(Layer.provideMerge(aiClient))
-  const approvals = Layer.mergeAll(approvalServiceLayer, approvalRoutingLayer).pipe(Layer.provideMerge(planner))
-  return Layer.mergeAll(agentHarnessLayer, supplyDetectorLayer, qualityDetectorLayer, followupLayer, auditExporterLayer, benchmarkLayer).pipe(Layer.provideMerge(approvals))
+  const ai = Layer.mergeAll(plannerLayer, mailTriageLayer).pipe(Layer.provideMerge(aiClient))
+  const approvals = Layer.mergeAll(approvalServiceLayer, approvalRoutingLayer).pipe(Layer.provideMerge(ai))
+  const agentDependencies = Layer.mergeAll(approvals, contextResolvers, executor)
+  const agent = agentHarnessLayer.pipe(Layer.provideMerge(agentDependencies))
+  const ingressDependencies = Layer.mergeAll(agent, mailRoutes, ai)
+  const ingress = mailIngressLayer.pipe(Layer.provideMerge(ingressDependencies))
+
+  return Layer.mergeAll(agent, ingress, qualityDetectorLayer, followupLayer, auditExporterLayer, benchmarkLayer).pipe(Layer.provideMerge(agentDependencies))
 }
 
 export const layer = build(layerNoop)
