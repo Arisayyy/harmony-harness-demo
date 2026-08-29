@@ -13,5 +13,5 @@ const cli = Command.make("harmony").pipe(
   Command.withSubcommands([demo, approval, run, audit, clock, benchmark])
 )
 
-const main = Command.run(cli, { version: "0.1.0" }).pipe(Effect.provide(layer), Effect.provide(BunServices.layer))
+const main = Command.run(cli, { version: "0.1.0" }).pipe(Effect.provide(layer), Effect.provide(BunServices.layer), Effect.scoped)
 Effect.runPromise(main)
