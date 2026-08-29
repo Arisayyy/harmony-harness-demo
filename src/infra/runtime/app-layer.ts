@@ -35,7 +35,10 @@ import { layer as configLayer } from "../config/app-config"
 import { layer as databaseLayer } from "../database/database"
 import { layer as workflowEngineLayer } from "../workflow/workflow-engine"
 
-const build = (crashLayer: Layer.Layer<CrashControl>, plannerProvider: (base: Layer.Layer<any>) => Layer.Layer<Planner, any, any>) => {
+type ClosedLayer = Layer.Layer<any, any, never>
+type PlannerProvider = (base: ClosedLayer) => Layer.Layer<Planner, any, never>
+
+const build = (crashLayer: Layer.Layer<CrashControl>, plannerProvider: PlannerProvider) => {
   const database = databaseLayer.pipe(Layer.provide(configLayer))
   const infrastructure = Layer.mergeAll(configLayer, BunServices.layer, database, crashLayer)
   const state = Layer.mergeAll(businessClockLayer, principalDirectoryLayer, attentionLayer, runRepositoryLayer, approvalRepositoryLayer, auditRepositoryLayer, erpLayer, mailLayer, calendarLayer).pipe(Layer.provideMerge(infrastructure))
@@ -49,11 +52,11 @@ const build = (crashLayer: Layer.Layer<CrashControl>, plannerProvider: (base: La
   return Layer.mergeAll(agentHarnessLayer, supplyDetectorLayer, qualityDetectorLayer, followupLayer, auditExporterLayer, benchmarkLayer).pipe(Layer.provideMerge(approvals))
 }
 
-const livePlanner = (base: Layer.Layer<any>) => {
+const livePlanner: PlannerProvider = (base) => {
   const aiClient = openRouterClientLayer.pipe(Layer.provideMerge(base))
   return openRouterPlannerLayer.pipe(Layer.provideMerge(aiClient))
 }
-const fixturePlanner = (base: Layer.Layer<any>) => fixturePlannerLayer.pipe(Layer.provideMerge(base))
+const fixturePlanner: PlannerProvider = (base) => fixturePlannerLayer.pipe(Layer.provideMerge(base))
 
 export const layer = build(layerNoop, livePlanner)
 export const layerFixturePlanner = build(layerNoop, fixturePlanner)
