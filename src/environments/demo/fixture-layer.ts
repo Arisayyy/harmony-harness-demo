@@ -22,6 +22,7 @@ import { layer as auditLogLayer } from "../../harness/audit/service/audit-log"
 import { layer as gateLayer } from "../../harness/authorization/policy/gate"
 import { layer as principalDirectoryLayer } from "../../harness/authorization/permissions/principal-directory"
 import { layer as benchmarkLayer } from "../../harness/evaluation/reporting/benchmark-runner"
+import { layer as eventReceiptLayer } from "../../harness/events/repository/event-receipt-repository"
 import { layer as mailIngressLayer } from "../../harness/events/runtime/mail-ingress"
 import { layer as runRepositoryLayer } from "../../harness/memory/durable/run-repository"
 import { layer as businessClockLayer } from "../../harness/scheduling/model/business-clock"
@@ -40,7 +41,7 @@ import { layer as workflowEngineLayer } from "../../infra/workflow/workflow-engi
 
 const database = databaseLayer.pipe(Layer.provide(configLayer))
 const infrastructure = Layer.mergeAll(configLayer, BunServices.layer, database, layerNoop)
-const state = Layer.mergeAll(businessClockLayer, principalDirectoryLayer, attentionLayer, runRepositoryLayer, approvalRepositoryLayer, auditRepositoryLayer, erpLayer, mailLayer, calendarLayer).pipe(Layer.provideMerge(infrastructure))
+const state = Layer.mergeAll(businessClockLayer, principalDirectoryLayer, attentionLayer, eventReceiptLayer, runRepositoryLayer, approvalRepositoryLayer, auditRepositoryLayer, erpLayer, mailLayer, calendarLayer).pipe(Layer.provideMerge(infrastructure))
 const domain = Layer.mergeAll(scheduledWorkLayer, auditLogLayer, supplyContextLayer, qualityContextLayer, supplyDetectorLayer, qualityDetectorLayer).pipe(Layer.provideMerge(state))
 const contextResolvers = contextResolverLayer.pipe(Layer.provideMerge(domain))
 const mailRoutes = mailRouteLayer.pipe(Layer.provideMerge(domain))
@@ -55,7 +56,7 @@ const ai = Layer.mergeAll(fixturePlannerLayer, fixtureMailTriageLayer).pipe(Laye
 const approvals = Layer.mergeAll(approvalServiceLayer, approvalRoutingLayer).pipe(Layer.provideMerge(ai))
 const agentDependencies = Layer.mergeAll(approvals, contextResolvers, executor, policies)
 const agent = agentHarnessLayer.pipe(Layer.provideMerge(agentDependencies))
-const ingressDependencies = Layer.mergeAll(agent, mailRoutes, ai)
+const ingressDependencies = Layer.mergeAll(agent, mailRoutes, ai, state)
 const ingress = mailIngressLayer.pipe(Layer.provideMerge(ingressDependencies))
 
 export const layer = Layer.mergeAll(agent, ingress, qualityDetectorLayer, followupLayer, auditExporterLayer, benchmarkLayer).pipe(Layer.provideMerge(agentDependencies))

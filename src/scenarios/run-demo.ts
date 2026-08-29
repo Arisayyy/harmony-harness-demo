@@ -50,17 +50,19 @@ export const runDemo = Effect.gen(function*() {
   const elena = yield* directory.get("u-101")
   const noiseMail = yield* deliverIrrelevantMail
   const noiseResult = yield* mailIngress.received(elena.userId, noiseMail)
+  if (noiseResult.status !== "processed") return yield* Effect.die("Fresh irrelevant mail was incorrectly treated as duplicate")
   yield* Console.log(`mail AI triage       ${noiseMail.messageId} · ${noiseResult.decision._tag} · no domain agent started`)
 
   yield* countdown("supplier email in")
   const supplierMail = yield* deliverSupplierDelay
   yield* Console.log("mail                 M-001 received · PO-77812 slips to Guadalajara dock Tuesday 9/8")
   const ingress = yield* mailIngress.received(elena.userId, supplierMail)
+  if (ingress.status !== "processed") return yield* Effect.die("Fresh supplier mail was incorrectly treated as duplicate")
   yield* Console.log(`mail AI triage       ${ingress.decision._tag}${ingress.decision._tag === "RouteMail" ? ` → ${ingress.decision.route}` : ""}`)
   const scenarioARun = ingress.runs[0]
   if (scenarioARun === undefined) return yield* Effect.die("Scenario A mail event did not start an agent run")
   const duplicate = yield* mailIngress.received(elena.userId, supplierMail)
-  yield* Console.log(`event dedupe         repeated delivery created ${duplicate.runs.length} duplicate agent runs`)
+  yield* Console.log(`event dedupe         repeated provider delivery → ${duplicate.status} · ${duplicate.runs.length} duplicate agent runs`)
 
   const scenarioARecommendation = yield* decodeRecommendation(JSON.parse(scenarioARun.recommendationJson))
   yield* Console.log(`\nagent                ${recommendationText(scenarioARecommendation)}`)

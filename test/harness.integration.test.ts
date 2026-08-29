@@ -47,7 +47,7 @@ const approvedReroute = (supplierId: string) => new EnterWorkflow({
 })
 
 describe("enterprise harness safety and durability", () => {
-  test("AI-triages every inbound email and immediately starts the relevant domain agent", async () => {
+  test("AI-triages every new inbound email and dedupes provider redelivery before a second model call", async () => {
     await setup()
     const result = await run(Effect.gen(function*() {
       const ingress = yield* MailIngress
@@ -57,20 +57,26 @@ describe("enterprise harness safety and durability", () => {
       const routed = yield* ingress.received("u-101", delay)
       const replay = yield* ingress.received("u-101", delay)
       return {
-        ignoredTag: ignored.decision._tag,
+        ignoredStatus: ignored.status,
+        ignoredTag: ignored.status === "processed" ? ignored.decision._tag : null,
         ignoredRuns: ignored.runs.length,
-        routedTag: routed.decision._tag,
-        route: routed.decision._tag === "RouteMail" ? routed.decision.route : null,
+        routedStatus: routed.status,
+        routedTag: routed.status === "processed" ? routed.decision._tag : null,
+        route: routed.status === "processed" && routed.decision._tag === "RouteMail" ? routed.decision.route : null,
         routedRuns: routed.runs.length,
+        replayStatus: replay.status,
         replayRuns: replay.runs.length
       }
     }))
     expect(result).toEqual({
+      ignoredStatus: "processed",
       ignoredTag: "IgnoreMail",
       ignoredRuns: 0,
+      routedStatus: "processed",
       routedTag: "RouteMail",
       route: "purchasing.supply-risk",
       routedRuns: 1,
+      replayStatus: "duplicate",
       replayRuns: 0
     })
   })
