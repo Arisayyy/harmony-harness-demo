@@ -19,6 +19,7 @@ import { deliverIrrelevantMail, deliverSupplierDelay } from "./scenario-a/events
 import { placeQualityHold } from "./scenario-b/events"
 import { runCrashResumeFixture } from "./failures/crash-resume"
 import { renderBanner, renderDeclined, renderExecutionComplete, requestApproval, requestHomeAction, waitForHome, type DemoDecision, type HomeEvent, type HomeTask } from "../cli/ui/demo-ui"
+import { playSplash } from "../cli/ui/splash"
 
 const decodeRecommendation = Schema.decodeUnknownEffect(Recommendation)
 const pause = Effect.sleep("250 millis")
@@ -54,6 +55,7 @@ const decide = Effect.fnUntraced(function*(options: {
 })
 
 export const runDemo = (mode: DemoMode = "interactive") => Effect.gen(function*() {
+  if (mode === "interactive") yield* playSplash
   yield* migrate
   yield* resetDemo
   const directory = yield* PrincipalDirectory
