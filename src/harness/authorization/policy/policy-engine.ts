@@ -23,10 +23,10 @@ export const makePolicyEngine = (rules: ReadonlyArray<PolicyRule>) => PolicyEngi
   rules: rules.map((rule) => rule.name),
   evaluate: (principal, recommendation) => Effect.reduce(
     rules,
-    {
+    () => ({
       assignedApproverId: principal.userId,
       policyReason: "Agent-originated writes require plan-level human approval."
-    },
+    }),
     (state, rule) => rule.evaluate(principal, recommendation, state)
   )
 })
