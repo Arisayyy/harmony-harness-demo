@@ -1,10 +1,11 @@
 # Harmony Harness Demo
 
+![Harmony operator demo](artifacts/harmony-startup.gif)
+
 A durable, policy-gated enterprise agent harness built with **Effect 4**, **Bun**, **SQLite**, **Effect Workflow**, and **OpenRouter**.
 
 The demo is intentionally not a chat wrapper around tools. It models the harder part of enterprise agents: reacting to enterprise events, interpreting every inbound email with an AI triage boundary, gathering permission-scoped evidence, asking an LLM for a bounded recommendation, enforcing deterministic policy, obtaining durable human approval, executing idempotent workflows, surviving process death, and reconstructing what happened from audit state.
 
-![Harmony operator demo](artifacts/harmony-startup.gif)
 
 ## Reviewer quick path
 
