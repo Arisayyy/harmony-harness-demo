@@ -139,6 +139,7 @@ describe("enterprise harness safety and durability", () => {
     const result = await run(Effect.gen(function*() {
       const payload = {
         runId: `run-a-${nonce}`,
+        traceId: `trace-a-${nonce}`,
         principalId: "u-101",
         partId: "RT-4471",
         originalPoId: "PO-77812",
@@ -148,7 +149,7 @@ describe("enterprise harness safety and durability", () => {
       }
       const first = yield* ReroutePurchaseOrderWorkflow.execute(payload)
       const replay = yield* ReroutePurchaseOrderWorkflow.execute(payload)
-      const second = yield* ReroutePurchaseOrderWorkflow.execute({ ...payload, runId: `run-b-${nonce}` })
+      const second = yield* ReroutePurchaseOrderWorkflow.execute({ ...payload, runId: `run-b-${nonce}`, traceId: `trace-b-${nonce}` })
       const sql = yield* SqlClient.SqlClient
       const rows = yield* sql<any>`SELECT COUNT(*) AS count FROM purchase_orders WHERE po_id LIKE 'PO-R-%'`
       return { first, replay, second, count: Number(rows[0]?.count ?? 0) }
