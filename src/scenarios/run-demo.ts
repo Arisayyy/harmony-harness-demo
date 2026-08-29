@@ -73,7 +73,7 @@ export const runDemo = Effect.gen(function*() {
   yield* Console.log(`approval             approved by ${approval.assignedApproverId}`)
   const scenarioAOutcome = yield* harness.executeApproved(scenarioARun.runId)
   yield* Console.log(`workflow             purchasing.reroute-po@1 complete · ${JSON.stringify(scenarioAOutcome)}`)
-  yield* exporter.exportRun(scenarioARun.runId, "artifacts/scenario-a.ndjson")
+  yield* exporter.exportRuns([`mail:${supplierMail.messageId}`, scenarioARun.runId], "artifacts/scenario-a.ndjson")
 
   yield* clock.advanceTo("2026-09-02T17:00:00-06:00")
   const edgeApprovalId = yield* crypto.randomUUIDv4
