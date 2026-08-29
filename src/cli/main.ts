@@ -1,7 +1,8 @@
 import * as BunServices from "@effect/platform-bun/BunServices"
 import { Effect } from "effect"
 import { Command } from "effect/unstable/cli"
-import { layer, layerFixturePlanner } from "../infra/runtime/app-layer"
+import { layer as fixtureLayer } from "../infra/runtime/fixture-app-layer"
+import { layer as liveLayer } from "../infra/runtime/app-layer"
 import { runDemo } from "../scenarios/run-demo"
 import { benchmark } from "./commands/benchmark"
 import { approval, audit, clock, run } from "./commands/operations"
@@ -13,6 +14,6 @@ const cli = Command.make("harmony").pipe(
   Command.withSubcommands([demo, approval, run, audit, clock, benchmark])
 )
 
-const applicationLayer = process.env.HARMONY_PLANNER === "fixture" ? layerFixturePlanner : layer
+const applicationLayer = process.env.HARMONY_PLANNER === "fixture" ? fixtureLayer : liveLayer
 const main = Command.run(cli, { version: "0.1.0" }).pipe(Effect.provide(applicationLayer), Effect.provide(BunServices.layer), Effect.scoped)
 Effect.runPromise(main)
