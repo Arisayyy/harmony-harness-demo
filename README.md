@@ -19,7 +19,7 @@ If you have five minutes, read these files in order:
 6. `src/domain/purchasing/workflows/reroute-purchase-order.ts`: the durable six-step workflow and compensation.
 7. `test/harness.integration.test.ts`: executable event, safety, approval, and restart claims.
 8. `artifacts/scenario-a.recorded.ndjson`: a deterministic end-to-end Scenario A audit.
-9. `docs/DESIGN.md` and `MODEL.md`: design, model, evaluation, and production path.
+9. `DESIGN.md` and `MODEL.md`: design, model, evaluation, and production path.
 
 The executable source of truth is local and simple: frozen Bun install, strict TypeScript, the Bun-native integration suite, the complete deterministic demo, and the recorded Scenario A audit.
 
@@ -224,8 +224,8 @@ src/
 
 test/                     Bun-native integration suite
 artifacts/                recorded/generated audit evidence
-docs/DESIGN.md            submission design document
-MODEL.md                   company model choices + AI/evaluation notes
+DESIGN.md                 submission design document
+MODEL.md                  company model choices + AI/evaluation notes
 ```
 
 ## Adding a capability
@@ -260,7 +260,7 @@ Analyzing every inbound email with an LLM is a deliberate latency/coverage choic
 
 The local environment uses SQLite so the submission is portable. Real enterprise adapters would use delegated provider credentials and webhook/event subscriptions. Those substitutions happen at the environment/integration boundary, not inside `AgentHarness`.
 
-For identity/auth, long-term memory, scaling to thousands of employees, graph-first workflow tradeoffs, failure semantics, and the production path, see `docs/DESIGN.md`.
+For identity/auth, long-term memory, scaling to thousands of employees, graph-first workflow tradeoffs, failure semantics, and the production path, see `DESIGN.md`.
 
 ## What we cut
 

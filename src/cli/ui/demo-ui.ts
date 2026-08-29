@@ -28,16 +28,32 @@ const ansi = {
   red: "\u001b[31m",
   yellow: "\u001b[33m",
   panel: "\u001b[48;5;235m",
-  approve: "\u001b[48;5;29m",
-  decline: "\u001b[48;5;88m",
   clear: "\u001b[2J\u001b[H"
 } as const
 
-const width = 92
-const line = "─".repeat(width)
-const truncate = (value: string, max = width - 8) => value.length <= max ? value : `${value.slice(0, max - 1)}…`
+const maxWidth = 92
+const layoutWidth = (columns: number | undefined = process.stdout.columns) => Math.max(1, Math.min(maxWidth, (columns ?? maxWidth + 1) - 1))
+const lineFor = (width: number) => "─".repeat(width)
+const truncate = (value: string, max: number) => {
+  if (max <= 0) return ""
+  if (value.length <= max) return value
+  if (max === 1) return "…"
+  return `${value.slice(0, max - 1)}…`
+}
 const pad = (value: string, size: number) => value.length >= size ? value : `${value}${" ".repeat(size - value.length)}`
-const centerText = (value: string) => `${" ".repeat(Math.max(0, Math.floor((width - value.length) / 2)))}${value}`
+const centerText = (value: string, width: number) => {
+  const text = truncate(value, width)
+  return `${" ".repeat(Math.max(0, Math.floor((width - text.length) / 2)))}${text}`
+}
+const panelRow = (value: string, width: number, tone = ansi.white) => `${ansi.panel}${tone}${pad(truncate(value, width), width)}${ansi.reset}`
+const plainRow = (value: string, width: number, tone = ansi.white) => `${tone}${truncate(value, width)}${ansi.reset}`
+const operatorHeader = (width: number) => {
+  const left = "  harmony / operator session"
+  const right = "trace live  ·  Effect 4  "
+  const gap = width - left.length - right.length
+  const value = gap >= 1 ? `${left}${" ".repeat(gap)}${right}` : left
+  return panelRow(value, width, `${ansi.bold}${ansi.white}`)
+}
 
 const planLines = (recommendation: Recommendation): ReadonlyArray<string> => {
   switch (recommendation._tag) {
@@ -45,7 +61,7 @@ const planLines = (recommendation: Recommendation): ReadonlyArray<string> => {
       return [
         `Create replacement PO with approved supplier ${recommendation.parameters.alternateSupplierId}`,
         `Move ${recommendation.parameters.quantity} × ${recommendation.parameters.partId} off ${recommendation.parameters.originalPoId}`,
-        `Cancel the original PO after replacement creation succeeds`,
+        "Cancel the original PO after replacement creation succeeds",
         `Notify production order ${recommendation.parameters.productionOrderId} and schedule arrival check`
       ]
     case "ProposedActions":
@@ -89,31 +105,37 @@ const harmonyAscii = [
   "██╔══██║██╔══██║██╔══██╗██║╚██╔╝██║██║   ██║██║╚██╗██║  ╚██╔╝  ",
   "██║  ██║██║  ██║██║  ██║██║ ╚═╝ ██║╚██████╔╝██║ ╚████║   ██║   ",
   "╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝     ╚═╝ ╚═════╝ ╚═╝  ╚═══╝   ╚═╝   "
-].join("\n")
-const centeredHarmonyAscii = harmonyAscii.split("\n").map(centerText).join("\n")
+] as const
+const renderHarmony = (width: number) => width >= 70
+  ? harmonyAscii.map((row) => centerText(row, width)).join("\n")
+  : `${ansi.bold}${centerText("HARMONY", width)}${ansi.reset}`
 
 const dayPart = (hour: number) => hour < 12 ? "morning" : hour < 17 ? "afternoon" : hour < 21 ? "evening" : "night"
 
-export const renderHome = (tasks: ReadonlyArray<HomeTask>, completed: ReadonlySet<HomeEvent>, now: string) => {
+export const renderHome = (tasks: ReadonlyArray<HomeTask>, completed: ReadonlySet<HomeEvent>, now: string, columns?: number) => {
+  const width = layoutWidth(columns)
+  const line = lineFor(width)
   const parsedHour = Number(now.slice(11, 13))
   const hour = Number.isFinite(parsedHour) ? parsedHour : 9
   const timeLabel = now.length >= 16 ? `${now.slice(0, 10)} ${now.slice(11, 16)}` : now
   const taskRows = tasks.length === 0
-    ? `${ansi.green}${ansi.bold}${centerText("NO PENDING TASKS")}${ansi.reset}\n${ansi.gray}${centerText(`All quiet on the floor. Enjoy your ${dayPart(hour)}, partner.`)}${ansi.reset}`
-    : `${ansi.yellow}${ansi.bold}${centerText(`${tasks.length} TASK${tasks.length === 1 ? "" : "S"} ON DECK`)}${ansi.reset}\n${tasks.map((task) => {
-      const row = `[${task.key}] ${task.title}  ${task.detail}`
-      return `${" ".repeat(Math.max(0, Math.floor((width - row.length) / 2)))}${ansi.white}[${task.key}] ${task.title}${ansi.reset}  ${ansi.gray}${task.detail}${ansi.reset}`
-    }).join("\n")}`
-  const eventState = (event: HomeEvent) => completed.has(event) ? `${ansi.green}✓${ansi.reset}` : " "
-  return `${ansi.clear}\n\n${ansi.yellow}${ansi.bold}${centeredHarmonyAscii}${ansi.reset}
+    ? `${ansi.green}${ansi.bold}${centerText("NO PENDING TASKS", width)}${ansi.reset}\n${ansi.gray}${centerText(`All quiet on the floor. Enjoy your ${dayPart(hour)}, partner.`, width)}${ansi.reset}`
+    : `${ansi.yellow}${ansi.bold}${centerText(`${tasks.length} TASK${tasks.length === 1 ? "" : "S"} ON DECK`, width)}${ansi.reset}\n${tasks.map((task) => `${ansi.white}${centerText(`[${task.key}] ${task.title}  ${task.detail}`, width)}${ansi.reset}`).join("\n")}`
+  const state = (event: HomeEvent, key: string, label: string) => `${completed.has(event) ? "✓" : " "} ${key} ${label}`
+  const eventRows = [
+    `EVENTS  ${state("supplier", "E", "supplier")}   ${state("noise", "N", "harmless")}   ${state("quality", "H", "quality")}`,
+    `        ${state("time", "T", "+6 days")}   ${state("failure", "F", "crash/resume")}   Q quit`
+  ].map((row) => panelRow(row, width, ansi.gray)).join("\n")
 
-${" ".repeat(25)}${ansi.gray}GDL PLANT  /  VIRTUAL TIME ${timeLabel}${ansi.reset}
+  return `${ansi.clear}\n\n${ansi.yellow}${ansi.bold}${renderHarmony(width)}${ansi.reset}
+
+${ansi.gray}${centerText(`GDL PLANT  /  VIRTUAL TIME ${timeLabel}`, width)}${ansi.reset}
 ${ansi.gray}${line}${ansi.reset}
 
 ${taskRows}
 
 
-${ansi.panel}${ansi.gray}  EVENTS${ansi.reset}${ansi.panel}  ${eventState("supplier")} ${ansi.white}${ansi.bold}E${ansi.reset}${ansi.panel} supplier   ${eventState("noise")} ${ansi.white}${ansi.bold}N${ansi.reset}${ansi.panel} harmless   ${eventState("quality")} ${ansi.white}${ansi.bold}H${ansi.reset}${ansi.panel} quality   ${eventState("time")} ${ansi.white}${ansi.bold}T${ansi.reset}${ansi.panel} +6 days   ${eventState("failure")} ${ansi.white}${ansi.bold}F${ansi.reset}${ansi.panel} crash / resume   ${ansi.gray}Q${ansi.reset}${ansi.panel} call it a day  ${ansi.reset}
+${eventRows}
 `
 }
 
@@ -174,63 +196,67 @@ export const renderApproval = (options: {
   readonly title: string
   readonly recommendation: Recommendation
   readonly approval: ApprovalRecord
-}) => {
+}, columns?: number) => {
+  const width = layoutWidth(columns)
+  const line = lineFor(width)
   const { approval, recommendation, title } = options
-  const rows = planLines(recommendation).map((row) => `${ansi.panel}  ${ansi.gray}│${ansi.reset}${ansi.panel}${ansi.white}  ${pad(row, 74)}${ansi.reset}`).join("\n")
+  const rows = planLines(recommendation).map((row) => panelRow(`  │  ${row}`, width)).join("\n")
   const activity = recommendation._tag === "EnterWorkflow"
-    ? [`Read  purchasing context`, `Read  supplier qualification`, `Plan  ${recommendation.workflow}`]
-    : [`Read  quality allocation`, `Plan  ${recommendation._tag === "ProposedActions" ? `${recommendation.actions.length} bounded actions` : "no action"}`]
-  const activityRows = activity.map((row) => `  ${ansi.green}✓${ansi.reset} ${ansi.gray}${row}${ansi.reset}`).join("\n")
-  return `${ansi.clear}${ansi.panel}${ansi.bold}${ansi.white}  harmony / operator session${ansi.reset}${ansi.panel}${ansi.gray}${pad("", 38)}trace live  ·  Effect 4  ${ansi.reset}
+    ? ["Read  purchasing context", "Read  supplier qualification", `Plan  ${recommendation.workflow}`]
+    : ["Read  quality allocation", `Plan  ${recommendation._tag === "ProposedActions" ? `${recommendation.actions.length} bounded actions` : "no action"}`]
+  const activityRows = activity.map((row) => plainRow(`  ✓ ${row}`, width, ansi.gray)).join("\n")
+  return `${ansi.clear}${operatorHeader(width)}
 ${ansi.gray}${line}${ansi.reset}
 
-  ${ansi.blue}▌${ansi.reset} ${ansi.gray}event${ansi.reset}   ${ansi.bold}Inbound enterprise signal requires attention${ansi.reset}
-    ${ansi.gray}Mail M-001 · PO-77812 slips beyond the production window${ansi.reset}
+${plainRow("  ▌ event   Inbound enterprise signal requires attention", width, ansi.blue)}
+${plainRow("    Mail M-001 · PO-77812 slips beyond the production window", width, ansi.gray)}
 
-  ${ansi.violet}◆  harmony${ansi.reset}
-  ${truncate(recommendation.rationale)}
+${plainRow("  ◆  harmony", width, ansi.violet)}
+${plainRow(`  ${recommendation.rationale}`, width)}
 
 ${activityRows}
 
-  ${ansi.yellow}◇  policy gate${ansi.reset}  ${ansi.gray}Agent-originated writes require human approval${ansi.reset}
+${plainRow("  ◇  policy gate  Agent-originated writes require human approval", width, ansi.yellow)}
 
-${ansi.panel}  ${ansi.yellow}${ansi.bold}PERMISSION REQUIRED${ansi.reset}${ansi.panel}  ${ansi.gray}durable approval · ${approval.approvalId.slice(0, 8)}${ansi.reset}
-${ansi.panel}                                                                                ${ansi.reset}
-${ansi.panel}  ${ansi.bold}${ansi.white}${title}${ansi.reset}${ansi.panel}                                                                  ${ansi.reset}
-${ansi.panel}  ${ansi.gray}INTENT${ansi.reset}${ansi.panel}  ${ansi.white}${truncate(planIntent(recommendation), 72)}${ansi.reset}${ansi.panel}  ${ansi.reset}
-${ansi.panel}                                                                                ${ansi.reset}
-${ansi.panel}  ${ansi.gray}CHANGES TO AUTHORIZE${ansi.reset}${ansi.panel}                                                            ${ansi.reset}
+${panelRow(`  PERMISSION REQUIRED  durable approval · ${approval.approvalId.slice(0, 8)}`, width, `${ansi.yellow}${ansi.bold}`)}
+${panelRow("", width)}
+${panelRow(`  ${title}`, width, `${ansi.bold}${ansi.white}`)}
+${panelRow(`  INTENT  ${planIntent(recommendation)}`, width)}
+${panelRow("", width)}
+${panelRow("  CHANGES TO AUTHORIZE", width, ansi.gray)}
 ${rows}
-${ansi.panel}                                                                                ${ansi.reset}
-${ansi.panel}  ${ansi.gray}${truncate(planImpact(recommendation), 78)}${ansi.reset}${ansi.panel}  ${ansi.reset}
-${ansi.panel}  ${ansi.green}✓ approved supplier  ✓ compensation  ✓ idempotency  ✓ scope recheck${ansi.reset}${ansi.panel}       ${ansi.reset}
-${ansi.panel}                                                                                ${ansi.reset}
-${ansi.panel}  ${ansi.gray}${truncate(approval.policyReason, 78)}${ansi.reset}${ansi.panel}${" ".repeat(3)}${ansi.reset}
-${ansi.panel}  ${ansi.gray}plan ${approval.planHash.slice(0, 12)}  ·  reviewer ${approval.assignedApproverId}${ansi.reset}${ansi.panel}${" ".repeat(38)}${ansi.reset}
-${ansi.panel}                                                                                ${ansi.reset}
-${ansi.panel}  ${ansi.approve}${ansi.bold}${ansi.white}  A  Approve  ${ansi.reset}${ansi.panel}   ${ansi.decline}${ansi.bold}${ansi.white}  D  Decline  ${ansi.reset}${ansi.panel}   ${ansi.gray}Q  dismiss${ansi.reset}${ansi.panel}${" ".repeat(24)}${ansi.reset}
+${panelRow("", width)}
+${panelRow(`  ${planImpact(recommendation)}`, width, ansi.gray)}
+${panelRow("  ✓ approved supplier  ✓ compensation  ✓ idempotency  ✓ scope recheck", width, ansi.green)}
+${panelRow("", width)}
+${panelRow(`  ${approval.policyReason}`, width, ansi.gray)}
+${panelRow(`  plan ${approval.planHash.slice(0, 12)}  ·  reviewer ${approval.assignedApproverId}`, width, ansi.gray)}
+${panelRow("", width)}
+${panelRow("  [A] Approve   [D] Decline   [Q] dismiss", width, `${ansi.bold}${ansi.white}`)}
 
 `
 }
 
-export const renderDecision = (decision: DemoDecision, title: string) => {
+export const renderDecision = (decision: DemoDecision, title: string, columns?: number) => {
+  const width = layoutWidth(columns)
+  const line = lineFor(width)
   const approved = decision === "approved"
   const cancelled = decision === "cancelled"
   const color = approved ? ansi.green : cancelled ? ansi.yellow : ansi.red
   const symbol = approved ? "✓" : cancelled ? "·" : "×"
   const label = approved ? "Permission granted" : cancelled ? "Session dismissed" : "Permission declined"
   const detail = approved ? "Continuing through runtime scope checks and durable execution…" : cancelled ? "The approval remains pending. No proposed writes were executed." : "No proposed writes were executed. Decision recorded in the audit trail."
-  return `${ansi.clear}${ansi.panel}${ansi.bold}${ansi.white}  harmony / operator session${ansi.reset}${ansi.panel}${ansi.gray}${pad("", 38)}trace live  ·  Effect 4  ${ansi.reset}
+  return `${ansi.clear}${operatorHeader(width)}
 ${ansi.gray}${line}${ansi.reset}
 
-  ${color}${ansi.bold}${symbol}  ${label}${ansi.reset}
+${plainRow(`  ${symbol}  ${label}`, width, `${color}${ansi.bold}`)}
 
-  ${ansi.bold}${title}${ansi.reset}
-  ${ansi.gray}${detail}${ansi.reset}
+${plainRow(`  ${title}`, width, ansi.bold)}
+${plainRow(`  ${detail}`, width, ansi.gray)}
 
-  ${ansi.gray}${cancelled ? "approval.status " : "approval.decided"}${ansi.reset}  ${color}${cancelled ? "pending" : decision}${ansi.reset}
-  ${ansi.gray}durability${ansi.reset}        ${cancelled ? "approval remains pending" : "persisted"}
-  ${ansi.gray}next${ansi.reset}              ${approved ? "execute approved plan" : cancelled ? "return to task inbox" : "return to attention loop"}
+${plainRow(`  ${cancelled ? "approval.status " : "approval.decided"}  ${cancelled ? "pending" : decision}`, width, color)}
+${plainRow(`  durability        ${cancelled ? "approval remains pending" : "persisted"}`, width, ansi.gray)}
+${plainRow(`  next              ${approved ? "execute approved plan" : cancelled ? "return to task inbox" : "return to attention loop"}`, width, ansi.gray)}
 
 ${ansi.gray}${line}${ansi.reset}
 `
@@ -240,49 +266,58 @@ export const renderExecutionComplete = (options: {
   readonly title: string
   readonly kind: "workflow" | "actions"
   readonly outcome: unknown
-}) => `${ansi.clear}${ansi.panel}${ansi.bold}${ansi.white}  harmony / operator session${ansi.reset}${ansi.panel}${ansi.gray}${pad("", 38)}trace live  ·  Effect 4  ${ansi.reset}
+}, columns?: number) => {
+  const width = layoutWidth(columns)
+  const line = lineFor(width)
+  return `${ansi.clear}${operatorHeader(width)}
 ${ansi.gray}${line}${ansi.reset}
 
-  ${ansi.green}${ansi.bold}✓  Durable execution completed${ansi.reset}
-  ${ansi.gray}${options.title} · approved decision persisted${ansi.reset}
+${plainRow("  ✓  Durable execution completed", width, `${ansi.green}${ansi.bold}`)}
+${plainRow(`  ${options.title} · approved decision persisted`, width, ansi.gray)}
 
-  ${ansi.panel}  ${ansi.gray}EXECUTION${ansi.reset}${ansi.panel}  ${ansi.white}${options.kind === "workflow" ? "purchasing.reroute-po@1" : "bounded action set"}${ansi.reset}${ansi.panel}${" ".repeat(34)}${ansi.reset}
-  ${ansi.panel}                                                                                ${ansi.reset}
-  ${ansi.panel}  ${ansi.green}✓${ansi.reset}${ansi.panel}  approval revalidated                                                    ${ansi.reset}
-  ${ansi.panel}  ${ansi.green}✓${ansi.reset}${ansi.panel}  runtime scopes checked                                                  ${ansi.reset}
-  ${ansi.panel}  ${ansi.green}✓${ansi.reset}${ansi.panel}  idempotent writes committed                                             ${ansi.reset}
-  ${ansi.panel}  ${ansi.green}✓${ansi.reset}${ansi.panel}  audit trail persisted                                                   ${ansi.reset}
-  ${ansi.panel}                                                                                ${ansi.reset}
-  ${ansi.panel}  ${ansi.gray}result${ansi.reset}${ansi.panel}  ${ansi.white}${truncate(JSON.stringify(options.outcome), 70)}${ansi.reset}${ansi.panel}  ${ansi.reset}
+${panelRow(`  EXECUTION  ${options.kind === "workflow" ? "purchasing.reroute-po@1" : "bounded action set"}`, width, ansi.gray)}
+${panelRow("", width)}
+${panelRow("  ✓  approval revalidated", width, ansi.green)}
+${panelRow("  ✓  runtime scopes checked", width, ansi.green)}
+${panelRow("  ✓  idempotent writes committed", width, ansi.green)}
+${panelRow("  ✓  audit trail persisted", width, ansi.green)}
+${panelRow("", width)}
+${panelRow(`  result  ${JSON.stringify(options.outcome)}`, width)}
 
-  ${ansi.violet}◆  harmony${ansi.reset}
-  Execution is complete. The decision and side-effect trail are available in the audit log.
+${plainRow("  ◆  harmony", width, ansi.violet)}
+${plainRow("  Execution is complete. The decision and side-effect trail are available in the audit log.", width)}
 
 ${ansi.gray}${line}${ansi.reset}
 `
+}
 
 export const renderDeclined = (options: {
   readonly title: string
   readonly recommendation: Recommendation
   readonly reviewerId: string
-}) => `${ansi.clear}${ansi.panel}${ansi.bold}${ansi.white}  harmony / operator session${ansi.reset}${ansi.panel}${ansi.gray}${pad("", 38)}trace live  ·  Effect 4  ${ansi.reset}
+}, columns?: number) => {
+  const width = layoutWidth(columns)
+  const line = lineFor(width)
+  const rows = planLines(options.recommendation).map((row) => panelRow(`  │  ${row}`, width)).join("\n")
+  return `${ansi.clear}${operatorHeader(width)}
 ${ansi.gray}${line}${ansi.reset}
 
-  ${ansi.red}${ansi.bold}×  Permission declined${ansi.reset}
-  ${ansi.gray}${options.title} · rejected by ${options.reviewerId} · decision persisted${ansi.reset}
+${plainRow("  ×  Permission declined", width, `${ansi.red}${ansi.bold}`)}
+${plainRow(`  ${options.title} · rejected by ${options.reviewerId} · decision persisted`, width, ansi.gray)}
 
-  ${ansi.panel}  ${ansi.gray}PROPOSED PLAN  ·  NOT EXECUTED${ansi.reset}${ansi.panel}${" ".repeat(48)}${ansi.reset}
-  ${ansi.panel}                                                                                ${ansi.reset}
-${planLines(options.recommendation).map((row) => `  ${ansi.panel}  ${ansi.gray}│${ansi.reset}${ansi.panel}${ansi.white}  ${pad(row, 72)}${ansi.reset}`).join("\n")}
-  ${ansi.panel}                                                                                ${ansi.reset}
-  ${ansi.panel}  ${ansi.red}${ansi.bold}0 writes executed${ansi.reset}${ansi.panel}${" ".repeat(59)}${ansi.reset}
-  ${ansi.panel}  ${ansi.gray}ToolRuntime was never entered · enterprise state unchanged${ansi.reset}${ansi.panel}${" ".repeat(18)}${ansi.reset}
+${panelRow("  PROPOSED PLAN  ·  NOT EXECUTED", width, ansi.gray)}
+${panelRow("", width)}
+${rows}
+${panelRow("", width)}
+${panelRow("  0 writes executed", width, `${ansi.red}${ansi.bold}`)}
+${panelRow("  ToolRuntime was never entered · enterprise state unchanged", width, ansi.gray)}
 
-  ${ansi.violet}◆  harmony${ansi.reset}
-  I recorded the decline and left enterprise state unchanged.
+${plainRow("  ◆  harmony", width, ansi.violet)}
+${plainRow("  I recorded the decline and left enterprise state unchanged.", width)}
 
 ${ansi.gray}${line}${ansi.reset}
 `
+}
 
 export const requestApproval = (options: {
   readonly title: string
@@ -325,9 +360,13 @@ export const requestApproval = (options: {
   return Effect.sync(cleanup)
 })
 
-export const renderBanner = (mode: "interactive" | "auto") => `${ansi.bold}${ansi.cyan}HARMONY${ansi.reset} ${ansi.dim}operator harness${ansi.reset}
+export const renderBanner = (mode: "interactive" | "auto", columns?: number) => {
+  const width = layoutWidth(columns)
+  const line = lineFor(width)
+  return `${ansi.bold}${ansi.cyan}HARMONY${ansi.reset} ${ansi.dim}operator harness${ansi.reset}
 ${line}
-workspace            RealTruck · Guadalajara
-runtime              Effect 4 · Bun · SQLite
-mode                 ${mode === "auto" ? "deterministic auto" : "interactive approvals"}
+${truncate("workspace            RealTruck · Guadalajara", width)}
+${truncate("runtime              Effect 4 · Bun · SQLite", width)}
+${truncate(`mode                 ${mode === "auto" ? "deterministic auto" : "interactive approvals"}`, width)}
 ${line}`
+}
