@@ -2,7 +2,6 @@ import { Console, Crypto, Effect, Schema } from "effect"
 import { QualityHoldDetector } from "../domain/quality/detectors/quality-hold-detector"
 import { AgentHarness } from "../harness/agent/execution/agent-harness"
 import { Recommendation } from "../harness/agent/planning/recommendation"
-import { BackupRouting } from "../harness/approvals/routing/backup-routing"
 import { ApprovalRecord } from "../harness/approvals/model/approval"
 import { ApprovalRepository } from "../harness/approvals/service/approval-repository"
 import { ApprovalService } from "../harness/approvals/service/approval-service"
@@ -12,6 +11,7 @@ import { PrincipalDirectory } from "../harness/authorization/permissions/princip
 import { MailIngress } from "../harness/events/runtime/mail-ingress"
 import { BusinessClock } from "../harness/scheduling/model/business-clock"
 import { FollowupDispatcher } from "../harness/scheduling/service/followup-dispatcher"
+import { ScheduledWorkService } from "../harness/scheduling/service/scheduled-work"
 import { ToolRuntime } from "../harness/tools/runtime/tool-runtime"
 import { migrate } from "../infra/database/migrations/migrate"
 import { resetDemo } from "../infra/database/seed/reset-demo"
@@ -64,9 +64,9 @@ export const runDemo = (mode: DemoMode = "interactive") => Effect.gen(function*(
   const harness = yield* AgentHarness
   const approvals = yield* ApprovalRepository
   const approvalService = yield* ApprovalService
-  const backupRouting = yield* BackupRouting
   const clock = yield* BusinessClock
   const followups = yield* FollowupDispatcher
+  const scheduled = yield* ScheduledWorkService
   const exporter = yield* AuditExporter
   const runtime = yield* ToolRuntime
   const crypto = yield* Crypto.Crypto
@@ -132,8 +132,10 @@ export const runDemo = (mode: DemoMode = "interactive") => Effect.gen(function*(
 
   const runTimeAdvance = Effect.fnUntraced(function*() {
     yield* clock.advanceTo("2026-09-08T09:00:00-06:00")
-    const items = yield* followups.runDue
-    yield* Console.log(`time advanced        Tuesday 2026-09-08 09:00 · ${items.length} follow-up item${items.length === 1 ? "" : "s"} due`)
+    const result = yield* followups.runDue
+    yield* Console.log(`time advanced        Tuesday 2026-09-08 09:00 · ${result.attentionItems.length} missing-arrival attention item${result.attentionItems.length === 1 ? "" : "s"}`)
+    yield* Console.log(`follow-up re-entry   ${result.agentRuns.length} new agent run${result.agentRuns.length === 1 ? "" : "s"} proposed through the normal gate`)
+    return result
   })
 
   const runFailure = Effect.fnUntraced(function*() {
@@ -186,10 +188,21 @@ export const runDemo = (mode: DemoMode = "interactive") => Effect.gen(function*(
   yield* clock.advanceTo("2026-09-02T17:00:00-06:00")
   const edgeApprovalId = yield* crypto.randomUUIDv4
   yield* approvals.create(new ApprovalRecord({ approvalId: edgeApprovalId, runId: "failure-backup-routing", effectiveUserId: "u-101", requestedApproverId: "u-101", assignedApproverId: "u-101", planHash: "backup-routing-fixture", planJson: "{}", policyReason: "Failure fixture: unanswered agent write approval", status: "pending", createdAt: "2026-09-02T16:30:00-06:00" }))
-  const routed = yield* backupRouting.routeIfOutTomorrow(edgeApprovalId)
+  yield* scheduled.schedule({ workId: `APPROVAL-EOD-${edgeApprovalId}`, runAt: "2026-09-02T17:00:00-06:00", kind: "approval.end-of-day-routing", payload: { approvalId: edgeApprovalId }, dedupeKey: `approval-eod:${edgeApprovalId}` })
+  const endOfDay = yield* followups.runDue
   const routedApproval = yield* approvals.get(edgeApprovalId)
-  yield* Console.log(`backup routing       ${routed ? `u-101 → ${routedApproval.assignedApproverId} because tomorrow is OOO` : "not routed"}`)
-  yield* runTimeAdvance()
+  yield* Console.log(`backup routing       ${endOfDay.routedApprovalIds.includes(edgeApprovalId) ? `u-101 → ${routedApproval.assignedApproverId} automatically at EOD because tomorrow is OOO` : "not routed"}`)
+  const followupResult = yield* runTimeAdvance()
+  yield* exporter.exportRuns([
+    ...(supplierTask.auditRunIds ?? []),
+    ...followupResult.schedulerRunIds,
+    ...followupResult.agentRuns.map((run) => run.runId)
+  ], "artifacts/scenario-a.ndjson")
+  yield* exporter.exportRuns([
+    ...(supplierTask.auditRunIds ?? []),
+    ...followupResult.schedulerRunIds,
+    ...followupResult.agentRuns.map((run) => run.runId)
+  ], "artifacts/scenario-a.recorded.ndjson")
   const qualityTask = yield* prepareQuality()
   yield* resolveTask(qualityTask)
 
@@ -197,6 +210,6 @@ export const runDemo = (mode: DemoMode = "interactive") => Effect.gen(function*(
   const denied = yield* runtime.execute({ tool: "erp.create-po", principal: revoked, idempotencyKey: "failure:revoked-scope", input: { poId: "PO-SHOULD-NOT-EXIST", partId: "RT-4471", supplierId: "S-Z", qty: 1, unitPrice: 46.5, orderedDate: "2026-09-08", promisedDate: "2026-09-09" } }).pipe(Effect.match({ onFailure: () => true, onSuccess: () => false }))
   yield* Console.log(`scope revocation     ${denied ? "tool boundary denied write" : "unexpectedly allowed"}`)
   yield* runFailure()
-  yield* Console.log("\nrecorded audit       artifacts/scenario-a.ndjson")
+  yield* Console.log("\nrecorded audit       artifacts/scenario-a.ndjson + scenario-a.recorded.ndjson")
   yield* Console.log("demo complete\n")
 })

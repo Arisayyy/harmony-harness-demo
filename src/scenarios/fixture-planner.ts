@@ -5,7 +5,20 @@ import { EnterWorkflow, FlagShortageAction, NoAction, NotifyProductionAction, Pr
 const evidenceIds = (input: PlannerInput) => input.evidence.map((item) => item.sourceId)
 
 const purchasing = (input: PlannerInput) => {
-  const attention = input.attention as { partId: string; poId: string; productionOrderId: string }
+  const attention = input.attention as { partId: string; poId: string; productionOrderId: string; followUp?: boolean }
+  if (attention.followUp === true) {
+    return new ProposedActions({
+      _tag: "ProposedActions",
+      rationale: "The promised arrival check fired and the replacement PO is still not received. Production needs a fresh warning.",
+      confidence: 1,
+      evidenceRefs: evidenceIds(input),
+      actions: [new NotifyProductionAction({
+        _tag: "production.notify",
+        productionOrderId: attention.productionOrderId,
+        message: `Replacement PO ${attention.poId} is still not received at the scheduled arrival check. Please keep production order ${attention.productionOrderId} on the shortage watchlist.`
+      })]
+    })
+  }
   const originalPo = input.evidence.find((item) => {
     const payload = item.payload as { poId?: string; supplierId?: string }
     return payload.poId === attention.poId

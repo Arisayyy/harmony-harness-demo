@@ -7,6 +7,7 @@ import type { GateApproval } from "../../authorization/policy/gate"
 import type { Principal } from "../../authorization/permissions/principal"
 import { RunRepository } from "../../memory/durable/run-repository"
 import { BusinessClock } from "../../scheduling/model/business-clock"
+import { ScheduledWorkService } from "../../scheduling/service/scheduled-work"
 import { ApprovalDecision, ApprovalRecord } from "../model/approval"
 import { ApprovalRepository } from "./approval-repository"
 import { ApprovalDecisionSignal, ApprovalWorkflow } from "./approval-workflow"
@@ -25,6 +26,7 @@ export const layer = Layer.effect(
     const runs = yield* RunRepository
     const audit = yield* AuditLog
     const clock = yield* BusinessClock
+    const scheduled = yield* ScheduledWorkService
     const engine = yield* WorkflowEngine
 
     return ApprovalService.of({
@@ -32,6 +34,14 @@ export const layer = Layer.effect(
         const createdAt = yield* clock.now
         const payload = { approvalId, runId, effectiveUserId: principal.userId, requestedApproverId: gate.assignedApproverId, assignedApproverId: gate.assignedApproverId, planHash: gate.planHash, planJson: JSON.stringify(recommendation), policyReason: gate.policyReason, createdAt }
         yield* repository.create(new ApprovalRecord({ ...payload, status: "pending" }))
+        const offset = createdAt.slice(-6)
+        yield* scheduled.schedule({
+          workId: `APPROVAL-EOD-${approvalId}`,
+          runAt: `${createdAt.slice(0, 10)}T17:00:00${offset}`,
+          kind: "approval.end-of-day-routing",
+          payload: { approvalId },
+          dedupeKey: `approval-eod:${approvalId}`
+        })
         return yield* ApprovalWorkflow.execute(payload, { discard: true }).pipe(Effect.provideService(WorkflowEngine, engine))
       }),
       decide: Effect.fn("ApprovalService.decide")(function*(approvalId, reviewerId, decision, reason) {

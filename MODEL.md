@@ -1,8 +1,35 @@
-# Model and evaluation notes
+# Company model and AI notes
+
+## The small company we built
+
+The demo models one RealTruck plant in Guadalajara. We kept the data small enough that a reviewer can follow every record, while still leaving a few traps for the agent.
+
+### What we kept from the challenge sample
+
+The basic shape is the same: parts, suppliers, purchase orders, production orders, quality lots, mail, calendars, users, scopes, approval limits, and a movable clock. Scenario A uses one motor, one delayed PO, one production order, and two realistic supplier choices. Scenario B adds a held lot, a covering good lot, and one too-small lot.
+
+Permissions live on the principal because that makes the demo readable. Providers check read scopes before returning anything. Tools declare write scopes and `ToolRuntime` checks them again immediately before a side effect.
+
+### What we changed or added
+
+- IDs and names use the synthetic RealTruck setting (`RT-4471`, Elena, Bajío Electromech). No production or personal data is present.
+- Supplier pricing is a small list rather than an open-ended ERP price-book model.
+- Production components can carry a `lotId`, which is the smallest addition Scenario B needs.
+- We added durable attention items, runs, approvals, approval routes, scheduled work, workflow state, idempotency results, and audit events. Those are harness state, not pretend ERP tables.
+- There are unrelated mails and POs, plus `S-Q`: a cheap, fast supplier that is not approved for the motor. It catches a planner that optimizes price and forgets policy.
+- The virtual clock is persisted in SQLite. Advancing it only makes work due; the normal dispatcher still has to process it.
+
+### What we left out
+
+We did not build inventory reservations, units of measure, currencies, tax, partial receipts, supplier sites, PO line tables, production routings, or a full quality-management system. They do not change the safety story in these two scenarios, and a half-built ERP would mostly make the evidence harder to inspect.
+
+Seeded principals model authorization decisions, but they are not presented as SSO or an OAuth server. The production credential path is covered in `docs/DESIGN.md`.
+
+## AI boundaries and evaluation
 
 The harness has two deliberately separate AI boundaries. Both use Effect AI and default to `z-ai/glm-5.3-flash` through OpenRouter in the demo environment, but they have different authority, schemas, and invocation frequency.
 
-## 1. Mail triage — every inbound email
+## 1. Mail triage: every inbound email
 
 `src/integrations/openrouter/openrouter-mail-triage.ts` implements `MailTriage`.
 
@@ -28,7 +55,7 @@ This design makes one model call per inbound email. A message that is genuinely 
 
 In a large production deployment, `MailTriage` should be independently configurable from the planning model. The service contract allows a tenant to use a faster/cheaper classifier, a private model, or an on-prem model without changing `MailIngress` or the agent kernel. Production also needs concurrency limits, per-tenant quotas, event dedupe, backpressure, cost metrics, and an explicit data-residency/privacy policy for email content.
 
-## 2. Planner — only after actionable attention exists
+## 2. Planner: only after actionable attention exists
 
 The main planner implementation lives in `src/integrations/openrouter/openrouter-planner.ts`. Its contract is `Planner`, not a tool executor. It is invoked only after a detector/route has created a durable attention item and the harness has gathered permission-filtered context.
 
@@ -96,20 +123,4 @@ bun run benchmark:replay
 
 The scorer checks recommendation type, workflow selection, expected workflow parameters such as `alternateSupplierId`, action tags, required evidence IDs, and forbidden values. It deliberately does not use an LLM judge.
 
-Mail triage has a separate deterministic integration fixture rather than being conflated with the planner benchmark. CI proves an irrelevant message is ignored, a supplier-delay message routes to `purchasing.supply-risk`, and repeating the same delivery starts no second agent run.
-
-## Reproducibility
-
-Exact bit-for-bit LLM output is not promised. Reproducibility means fixed typed fixture inputs, versioned prompts/contracts, temperature `0`, captured model names, structured output schemas, repeated planner trials, persisted results, and deterministic authority after model output.
-
-For CI, `HARMONY_PLANNER=fixture` selects both the deterministic planner and deterministic mail-triage implementation. This lets CI exercise the exact event/kernel/workflow path without storing an OpenRouter secret. A live `bun run demo` swaps in the OpenRouter implementations while leaving `MailIngress`, route catalogs, context resolution, policy, approval, workflow, ToolRuntime, persistence, and audit unchanged.
-
-## Changing models safely
-
-Treat triage and planning model changes independently.
-
-For a planner change, run the 5 × 3 live benchmark, inspect disagreement/forbidden-output/parameter failures, and bump `plannerVersion` when prompt or schema semantics change.
-
-For triage, evaluate routing precision/recall on representative mail, especially false negatives for urgent operational messages and false positives that unnecessarily launch expensive context/planning work. A triage-model change should bump the triage version when its prompt or routing semantics change.
-
-Do not weaken deterministic policy to compensate for model behavior. The model boundary and the safety boundary are intentionally separate.
+Mail triage has a separate deterministic integration fixture rather than being conflated with the planner benchmark. The integration suite proves an irrelevant message is ignored, a supplier-delay message routes to `purchasing.supply-risk`, and repeating the same delivery starts no second agent run.

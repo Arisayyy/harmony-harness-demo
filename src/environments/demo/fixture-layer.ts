@@ -58,5 +58,6 @@ const agentDependencies = Layer.mergeAll(approvals, contextResolvers, executor, 
 const agent = agentHarnessLayer.pipe(Layer.provideMerge(agentDependencies))
 const ingressDependencies = Layer.mergeAll(agent, mailRoutes, ai, state)
 const ingress = mailIngressLayer.pipe(Layer.provideMerge(ingressDependencies))
+const followups = followupLayer.pipe(Layer.provideMerge(Layer.mergeAll(agent, approvals)))
 
-export const layer = Layer.mergeAll(agent, ingress, qualityDetectorLayer, followupLayer, auditExporterLayer, benchmarkLayer).pipe(Layer.provideMerge(agentDependencies))
+export const layer = Layer.mergeAll(agent, ingress, qualityDetectorLayer, followups, auditExporterLayer, benchmarkLayer).pipe(Layer.provideMerge(agentDependencies))

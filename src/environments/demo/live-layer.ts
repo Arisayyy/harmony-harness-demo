@@ -61,8 +61,9 @@ const build = (crashLayer: Layer.Layer<CrashControl>) => {
   const agent = agentHarnessLayer.pipe(Layer.provideMerge(agentDependencies))
   const ingressDependencies = Layer.mergeAll(agent, mailRoutes, ai, state)
   const ingress = mailIngressLayer.pipe(Layer.provideMerge(ingressDependencies))
+  const followups = followupLayer.pipe(Layer.provideMerge(Layer.mergeAll(agent, approvals)))
 
-  return Layer.mergeAll(agent, ingress, qualityDetectorLayer, followupLayer, auditExporterLayer, benchmarkLayer).pipe(Layer.provideMerge(agentDependencies))
+  return Layer.mergeAll(agent, ingress, qualityDetectorLayer, followups, auditExporterLayer, benchmarkLayer).pipe(Layer.provideMerge(agentDependencies))
 }
 
 export const layer = build(layerNoop)

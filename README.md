@@ -4,25 +4,25 @@ A durable, policy-gated enterprise agent harness built with **Effect 4**, **Bun*
 
 The demo is intentionally not a chat wrapper around tools. It models the harder part of enterprise agents: reacting to enterprise events, interpreting every inbound email with an AI triage boundary, gathering permission-scoped evidence, asking an LLM for a bounded recommendation, enforcing deterministic policy, obtaining durable human approval, executing idempotent workflows, surviving process death, and reconstructing what happened from audit state.
 
-[![CI](https://github.com/Arisayyy/harmony-harness-demo/actions/workflows/ci.yml/badge.svg?branch=architecture%2Fharness-foundation)](https://github.com/Arisayyy/harmony-harness-demo/actions/workflows/ci.yml)
+![Harmony operator demo](artifacts/harmony-startup.gif)
 
 ## Reviewer quick path
 
 If you have five minutes, read these files in order:
 
-1. `src/harness/events/runtime/mail-ingress.ts` — every inbound email crosses AI triage and can immediately start a routed agent.
-2. `src/harness/agent/execution/agent-harness.ts` — generic proposal/approval/execution orchestration; it imports no purchasing or quality implementation.
-3. `src/harness/authorization/policy/gate.ts` + `src/harness/authorization/policy/policy-engine.ts` — generic gate and composable policy kernel.
-4. `src/app/policy-engine-layer.ts` — installed business policy rules.
-5. `src/harness/tools/runtime/tool-runtime.ts` — runtime scope checks, idempotency, and correlated side-effect audit.
-6. `src/domain/purchasing/workflows/reroute-purchase-order.ts` — the durable six-step workflow and compensation.
-7. `test/harness.integration.test.ts` — executable event, safety, approval, and restart claims.
-8. `artifacts/scenario-a.recorded.ndjson` — a CI-generated end-to-end Scenario A audit.
-9. `docs/DESIGN.md` and `MODEL.md` — design, model, evaluation, and production path.
+1. `src/harness/events/runtime/mail-ingress.ts`: every inbound email crosses AI triage and can immediately start a routed agent.
+2. `src/harness/agent/execution/agent-harness.ts`: generic proposal/approval/execution orchestration; it imports no purchasing or quality implementation.
+3. `src/harness/authorization/policy/gate.ts` + `src/harness/authorization/policy/policy-engine.ts`: generic gate and composable policy kernel.
+4. `src/app/policy-engine-layer.ts`: installed business policy rules.
+5. `src/harness/tools/runtime/tool-runtime.ts`: runtime scope checks, idempotency, and correlated side-effect audit.
+6. `src/domain/purchasing/workflows/reroute-purchase-order.ts`: the durable six-step workflow and compensation.
+7. `test/harness.integration.test.ts`: executable event, safety, approval, and restart claims.
+8. `artifacts/scenario-a.recorded.ndjson`: a deterministic end-to-end Scenario A audit.
+9. `docs/DESIGN.md` and `MODEL.md`: design, model, evaluation, and production path.
 
-The branch CI is the executable source of truth: frozen Bun install, strict TypeScript, the Bun-native integration suite, the complete deterministic demo, and Scenario A artifact generation run on every push and pull request.
+The executable source of truth is local and simple: frozen Bun install, strict TypeScript, the Bun-native integration suite, the complete deterministic demo, and the recorded Scenario A audit.
 
-## Scenario A — email event → AI triage → durable PO reroute
+## Scenario A: email event → AI triage → durable PO reroute
 
 The synthetic plant is RealTruck Guadalajara. A supplier email says `PO-77812` for part `RT-4471` will arrive too late for production order `4812`.
 
@@ -80,7 +80,7 @@ For the reroute, deterministic policy rejects the tempting cheap but unapproved 
 
 A separate failure fixture kills the worker with real `SIGKILL` immediately after PO creation. A fresh Bun process reopens the same workflow state and resumes without creating a second PO.
 
-## Scenario B — extension without changing the kernel
+## Scenario B: extension without changing the kernel
 
 A quality hold lands on a lot allocated to upcoming production. The quality extension provides its own context resolver and bounded actions. The planner may reallocate a valid lot and notify production, or flag a shortage when no lot covers demand.
 
@@ -108,14 +108,16 @@ The thin files under `src/infra/runtime/` are compatibility re-exports; the actu
 
 Requirements: Bun 1.3.12 or newer and an OpenRouter API key for the live AI path.
 
+For convenience, this review copy already has an OpenRouter API key in `.env` with a $1 spending limit ;). If you replace it, please keep the same kind of tight limit and never commit a production credential.
+
 ```bash
-cp .env.example .env
-# set OPENROUTER_API_KEY in .env
 bun install --frozen-lockfile
 bun run check
 bun run demo             # interactive approval UI
-bun run demo:auto        # deterministic, non-interactive CI/demo run
+bun run demo:auto        # deterministic, non-interactive reviewer run
 ```
+
+On a fresh checkout without that convenience file, copy `.env.example` to `.env` and add your own limited OpenRouter key.
 
 Default configuration:
 
@@ -128,7 +130,7 @@ The live demo uses OpenRouter twice for a relevant supplier email: first for imm
 
 The interactive demo pauses on real durable approval records. Press `A` to approve, `D` to decline, or `Q` to quit. Approval executes the proposed workflow/actions; declining records the decision without executing writes.
 
-For the deterministic CI/reviewer environment:
+For a deterministic reviewer run:
 
 ```bash
 bun run demo:auto
@@ -162,14 +164,18 @@ The integration suite covers:
 | True reroute invariant | the current supplier cannot be accepted as its own alternate |
 | Runtime authorization | revoking `erp:po:create` blocks the write at `ToolRuntime` even after planning |
 | Backup approval routing | unanswered approval moves to the configured backup when the primary is OOO tomorrow |
+| Scheduled EOD routing | a real Scenario A approval gets an EOD job and is routed by the due-work dispatcher |
+| Tuesday re-entry | a missing replacement PO creates a new attention item and a second gated agent run |
+| Workflow audit order | all six declared workflow steps complete in definition order in the audit |
+| Scenario B branches | a covering lot reallocates and notifies; insufficient stock flags purchasing |
 | Workflow identity | replaying the same run is idempotent while a distinct agent run gets a distinct workflow execution |
 | Crash durability | a real `SIGKILL` is followed by fresh-process resume with no duplicate replacement PO |
 
-CI then runs the complete deterministic demo and requires the Scenario A audit artifact to exist.
+The deterministic demo runs the complete story and writes the Scenario A audit artifact.
 
 ## Recorded run
 
-`artifacts/scenario-a.recorded.ndjson` is preserved from the deterministic CI environment. The live OpenRouter path uses the same `MailIngress`, route catalog, context catalog, policy engine, approval, workflow, tool runtime, persistence, and audit components; only the AI service layers differ.
+`artifacts/scenario-a.recorded.ndjson` is generated by the deterministic demo. It includes ingress, evidence, approval, all six workflow steps, concrete writes, the Tuesday check, and the follow-up agent run. The live OpenRouter path uses the same `MailIngress`, route catalog, context catalog, policy engine, approval, workflow, tool runtime, persistence, and audit components; only the AI service layers differ.
 
 Mail ingress itself also writes audit events (`mail.received`, `mail.triaged`, `mail.routed`) under the mail event identity, while the spawned agent run has its own traceable context/planner/policy/approval/execution history.
 
@@ -192,7 +198,7 @@ src/
     purchasing/           purchasing models, event detector, tools, durable workflow
     quality/              quality models, detector, bounded tools
   environments/
-    demo/                 SQLite/OpenRouter live composition + deterministic CI composition
+    demo/                 SQLite/OpenRouter live composition + deterministic test composition
   harness/
     agent/                generic attention, context catalog, execution, planner contract
     approvals/            durable approval state and backup routing
@@ -217,10 +223,21 @@ src/
 
 test/                     Bun-native integration suite
 artifacts/                recorded/generated audit evidence
-docs/decisions/           architecture decision records
 docs/DESIGN.md            submission design document
-MODEL.md                   model/evaluation disclosure
+MODEL.md                   company model choices + AI/evaluation notes
 ```
+
+## Adding a capability
+
+The extension path is intentionally boring. That is a feature here.
+
+**Tool:** define input/output schemas and required scopes with `defineTool`, implement the adapter-side effect, register it in `src/app/tool-catalog-layer.ts`, then add denial and idempotency tests. Agent writes must still go through `ToolRuntime`.
+
+**Provider:** add a narrow contract under `src/integrations/`, implement the local or real connector, enforce read scopes inside the adapter, and expose returned facts as evidence snapshots from a context resolver.
+
+**Detector:** turn a schedule or provider event into an `AttentionItem` with a stable business dedupe key. Register its context kind in `src/app/context-resolver-layer.ts`; if it is mail-driven, register the bounded route in `src/app/mail-route-layer.ts` too.
+
+**Workflow:** declare a versioned workflow with fixed activities, keep mutable checks inside activities, route every write through a registered tool, add meaningful compensation for completed writes, and register execution in `src/app/recommendation-executor-layer.ts`. Add a resume test before calling it done.
 
 ## Safety invariants
 
@@ -243,3 +260,7 @@ Analyzing every inbound email with an LLM is a deliberate latency/coverage choic
 The local environment uses SQLite so the submission is portable. Real enterprise adapters would use delegated provider credentials and webhook/event subscriptions. Those substitutions happen at the environment/integration boundary, not inside `AgentHarness`.
 
 For identity/auth, long-term memory, scaling to thousands of employees, graph-first workflow tradeoffs, failure semantics, and the production path, see `docs/DESIGN.md`.
+
+## What we cut
+
+We cut a hosted webhook service, real SSO/token exchange, distributed queues, managed workflow storage, a document-search connector, graphical workflow authoring, and a web approval UI. The local contracts show where those pieces connect, but thin imitations would not make these scenarios safer.

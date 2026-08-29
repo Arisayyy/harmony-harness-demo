@@ -24,7 +24,7 @@ The repository separates four concerns.
 
 `app/` is composition: it registers context resolvers, mail routes, business policy rules, recommendation execution, and tools. This is where the application decides which capabilities are installed.
 
-Finally, `environments/demo/` composes the portable RealTruck demonstration. It selects SQLite enterprise adapters and either OpenRouter AI or deterministic CI AI fixtures. A real deployment can replace those edges without changing `AgentHarness`.
+Finally, `environments/demo/` composes the portable RealTruck demonstration. It selects SQLite enterprise adapters and either OpenRouter AI or deterministic test fixtures. A real deployment can replace those edges without changing `AgentHarness`.
 
 This separation gives the codebase a useful architectural test: adding Scenario C should primarily add a domain capability and composition registrations, not another `if (domain === ...)` inside the harness kernel.
 
@@ -146,7 +146,7 @@ The planner benchmark has five versioned fixtures × three live repetitions. Det
 
 Mail triage is separately tested at the ingress boundary: irrelevant mail is ignored, supplier-delay mail routes to `purchasing.supply-risk` and immediately starts exactly one agent run, and redelivery starts no second run.
 
-Safety/durability integration tests independently cover supplier policy, no-op reroute rejection, runtime permission revocation, backup approval routing, workflow identity/replay, and real process death/recovery. CI runs strict TypeScript, all Bun-native integration tests, the deterministic end-to-end demo, and audit-artifact generation without requiring an external model secret.
+Safety/durability integration tests independently cover supplier policy, no-op reroute rejection, runtime permission revocation, backup approval routing, workflow identity/replay, and real process death/recovery. `bun run check` runs strict TypeScript and the Bun-native integration tests, while `bun run demo:auto` exercises the deterministic end-to-end demo and audit-artifact generation without requiring an external model secret.
 
 ## 11. Identity and authentication
 
@@ -155,6 +155,8 @@ The demo models authorization state rather than pretending a seeded table is a r
 In production, a principal should only be constructed after authenticating a human/workload through the organization's IdP. Employee-facing access would typically use OIDC/SAML SSO plus short-lived delegated connector credentials. Service-to-service calls should use workload identity. Every run should preserve authenticated actor and effective user separately where delegation exists.
 
 Authentication precedes entry to the harness; authorization is then enforced again at every read/write boundary. AI never manufactures identity. Human approvals also require authenticated reviewer identity and are validated against the currently required approver.
+
+The connector flow would be: SSO establishes the employee session; the harness issues a short-lived internal run identity; a token broker validates the requested tool and scopes; OAuth on-behalf-of or workload-identity exchange produces a short-lived token for that one upstream system; the provider/tool uses it and discards it. Refresh tokens and ERP service credentials stay in the broker or managed secret store. They are never placed in prompts, run memory, or model-accessible tool arguments.
 
 ## 12. Long-term memory
 
@@ -195,3 +197,9 @@ A graph-first engine becomes more useful with parallel branches, joins, conditio
 The **event ingress, planner, context catalog, policy engine, approval binding, tool catalog, idempotency, evidence, and audit contracts would not change**. Changing workflow authoring representation must not grant AI more authority or require reworking connector security.
 
 For this challenge I would keep the current code-first workflow. For a general enterprise workflow product, I would add graph authoring on top of the same durable runtime and safety kernel rather than replacing them.
+
+## 16. What Scenario B changed
+
+Scenario B added quality data, a detector, a context resolver, and bounded quality/shortage actions. It also extended the planner output schema and prompt so the model could name those actions, and added their scope rule to application policy composition. Those are capability changes we expected.
+
+It did not require a purchasing/quality branch in `AgentHarness`, a new approval mechanism, or a change to the audit event shape. The context and execution catalogs selected the extension, while the existing gate, plan hash, approval, tool runtime, and audit path stayed in charge.

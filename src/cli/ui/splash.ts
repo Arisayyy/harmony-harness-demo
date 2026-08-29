@@ -1,7 +1,7 @@
 import { Effect } from "effect"
 
-// Terminal-cell raster generated from assets/harmony-mark.svg. Keeping the SVG
-// as the source asset makes the mark easy to reuse outside the terminal.
+// Terminal-cell raster generated from the Harmony mark. Keeping image decoding
+// out of the hot path makes startup deterministic across terminal emulators.
 const mark = [
   "                                                                ###     ",
   "                                                             #######    ",
@@ -42,8 +42,9 @@ const mark = [
 
 const sourceWidth = mark[0].length
 const sourceHeight = mark.length
-const background = { red: 235, green: 238, blue: 229 }
-const foreground = { red: 20, green: 45, blue: 66 }
+// Match the industrial black-and-safety-yellow palette used by the home TUI.
+const background = { red: 7, green: 12, blue: 8 }
+const foreground = { red: 202, green: 214, blue: 75 }
 const clear = "\u001b[2J\u001b[H"
 const hideCursor = "\u001b[?25l"
 const showCursor = "\u001b[?25h"
@@ -97,24 +98,25 @@ const animateSplash = Effect.gen(function*() {
   const centerY = (rows - 1) / 2
 
   process.stdout.write(`${hideCursor}${backgroundColor}${clear}`)
-  for (const step of [0.08, 0.22, 0.42, 0.65, 0.84, 1]) {
+  yield* Effect.sleep("90 millis")
+  for (const [step, frameTime] of [[0.08, 52], [0.22, 53], [0.42, 52], [0.65, 53], [0.84, 52], [1, 53]] as const) {
     const progress = easeOutCubic(step)
     const expanded = points.map(({ x, y }) => ({
       x: Math.round(centerX + ((x - centerX) * progress)),
       y: Math.round(centerY + ((y - centerY) * progress))
     }))
     process.stdout.write(draw(expanded, color(foreground.red, foreground.green, foreground.blue)))
-    yield* Effect.sleep("35 millis")
+    yield* Effect.sleep(`${frameTime} millis`)
   }
 
-  yield* Effect.sleep("45 millis")
+  yield* Effect.sleep("68 millis")
   for (const amount of [0.25, 0.5, 0.75, 1]) {
     process.stdout.write(draw(points, color(
       blend(foreground.red, background.red, amount),
       blend(foreground.green, background.green, amount),
       blend(foreground.blue, background.blue, amount)
     )))
-    yield* Effect.sleep("30 millis")
+    yield* Effect.sleep("45 millis")
   }
 }).pipe(Effect.ensuring(Effect.sync(() => process.stdout.write(`${reset}${showCursor}${clear}`))))
 
