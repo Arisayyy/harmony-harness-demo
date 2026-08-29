@@ -8,6 +8,7 @@ import { layer as qualityContextLayer } from "../../domain/quality/context/quali
 import { layer as qualityDetectorLayer } from "../../domain/quality/detectors/quality-hold-detector"
 import { layer as attentionLayer } from "../../harness/agent/context/attention-repository"
 import { layer as agentHarnessLayer } from "../../harness/agent/execution/agent-harness"
+import { Planner } from "../../harness/agent/planning/planner"
 import { layer as approvalRoutingLayer } from "../../harness/approvals/routing/backup-routing"
 import { layer as approvalRepositoryLayer } from "../../harness/approvals/service/approval-repository"
 import { layer as approvalServiceLayer } from "../../harness/approvals/service/approval-service"
@@ -28,12 +29,13 @@ import { layer as calendarLayer } from "../../integrations/calendar/sqlite-calen
 import { layer as erpLayer } from "../../integrations/erp/sqlite-erp-provider"
 import { layer as mailLayer } from "../../integrations/mail/sqlite-mail-provider"
 import { layer as openRouterClientLayer } from "../../integrations/openrouter/client"
-import { layer as plannerLayer } from "../../integrations/openrouter/openrouter-planner"
+import { layer as openRouterPlannerLayer } from "../../integrations/openrouter/openrouter-planner"
+import { layer as fixturePlannerLayer } from "../../scenarios/fixture-planner"
 import { layer as configLayer } from "../config/app-config"
 import { layer as databaseLayer } from "../database/database"
 import { layer as workflowEngineLayer } from "../workflow/workflow-engine"
 
-const build = (crashLayer: Layer.Layer<CrashControl>) => {
+const build = (crashLayer: Layer.Layer<CrashControl>, plannerProvider: (base: Layer.Layer<any>) => Layer.Layer<Planner, any, any>) => {
   const database = databaseLayer.pipe(Layer.provide(configLayer))
   const infrastructure = Layer.mergeAll(configLayer, BunServices.layer, database, crashLayer)
   const state = Layer.mergeAll(businessClockLayer, principalDirectoryLayer, attentionLayer, runRepositoryLayer, approvalRepositoryLayer, auditRepositoryLayer, erpLayer, mailLayer, calendarLayer).pipe(Layer.provideMerge(infrastructure))
@@ -42,11 +44,18 @@ const build = (crashLayer: Layer.Layer<CrashControl>) => {
   const safety = Layer.mergeAll(toolRuntimeLayer, gateLayer).pipe(Layer.provideMerge(catalog))
   const engine = workflowEngineLayer.pipe(Layer.provideMerge(safety))
   const workflows = Layer.mergeAll(approvalWorkflowLayer, rerouteWorkflowLayer).pipe(Layer.provideMerge(engine))
-  const aiClient = openRouterClientLayer.pipe(Layer.provideMerge(workflows))
-  const planner = plannerLayer.pipe(Layer.provideMerge(aiClient))
+  const planner = plannerProvider(workflows)
   const approvals = Layer.mergeAll(approvalServiceLayer, approvalRoutingLayer).pipe(Layer.provideMerge(planner))
   return Layer.mergeAll(agentHarnessLayer, supplyDetectorLayer, qualityDetectorLayer, followupLayer, auditExporterLayer, benchmarkLayer).pipe(Layer.provideMerge(approvals))
 }
 
-export const layer = build(layerNoop)
-export const layerCrashAfterCreate = build(layerProcessKill("03-create-new-po"))
+const livePlanner = (base: Layer.Layer<any>) => {
+  const aiClient = openRouterClientLayer.pipe(Layer.provideMerge(base))
+  return openRouterPlannerLayer.pipe(Layer.provideMerge(aiClient))
+}
+const fixturePlanner = (base: Layer.Layer<any>) => fixturePlannerLayer.pipe(Layer.provideMerge(base))
+
+export const layer = build(layerNoop, livePlanner)
+export const layerFixturePlanner = build(layerNoop, fixturePlanner)
+export const layerCrashAfterCreate = build(layerProcessKill("03-create-new-po"), livePlanner)
+export const layerCrashAfterCreateFixture = build(layerProcessKill("03-create-new-po"), fixturePlanner)

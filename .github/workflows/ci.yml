@@ -19,3 +19,13 @@ jobs:
         run: bun run typecheck
       - name: Tests
         run: bun run test
+      - name: Full demo smoke (deterministic planner)
+        env:
+          HARMONY_PLANNER: fixture
+        run: bun run demo
+      - name: Preserve Scenario A audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: scenario-a-audit
+          path: artifacts/scenario-a.ndjson
+          if-no-files-found: error
