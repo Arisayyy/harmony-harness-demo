@@ -12,12 +12,14 @@ import { ApprovalRepository } from "../src/harness/approvals/service/approval-re
 import { Gate } from "../src/harness/authorization/policy/gate"
 import { Principal } from "../src/harness/authorization/permissions/principal"
 import { PrincipalDirectory } from "../src/harness/authorization/permissions/principal-directory"
+import { MailIngress } from "../src/harness/events/runtime/mail-ingress"
 import { BusinessClock } from "../src/harness/scheduling/model/business-clock"
 import { ToolRuntime } from "../src/harness/tools/runtime/tool-runtime"
 import { migrate } from "../src/infra/database/migrations/migrate"
 import { resetDemo } from "../src/infra/database/seed/reset-demo"
-import { layer } from "../src/infra/runtime/app-layer"
+import { layer } from "../src/infra/runtime/fixture-app-layer"
 import { runCrashResumeFixture } from "../src/scenarios/failures/crash-resume"
+import { deliverIrrelevantMail, deliverSupplierDelay } from "../src/scenarios/scenario-a/events"
 
 process.env.DATABASE_PATH = `.data/harmony-test-${process.pid}.db`
 
@@ -45,6 +47,34 @@ const approvedReroute = (supplierId: string) => new EnterWorkflow({
 })
 
 describe("enterprise harness safety and durability", () => {
+  test("AI-triages every inbound email and immediately starts the relevant domain agent", async () => {
+    await setup()
+    const result = await run(Effect.gen(function*() {
+      const ingress = yield* MailIngress
+      const noise = yield* deliverIrrelevantMail
+      const ignored = yield* ingress.received("u-101", noise)
+      const delay = yield* deliverSupplierDelay
+      const routed = yield* ingress.received("u-101", delay)
+      const replay = yield* ingress.received("u-101", delay)
+      return {
+        ignoredTag: ignored.decision._tag,
+        ignoredRuns: ignored.runs.length,
+        routedTag: routed.decision._tag,
+        route: routed.decision._tag === "RouteMail" ? routed.decision.route : null,
+        routedRuns: routed.runs.length,
+        replayRuns: replay.runs.length
+      }
+    }))
+    expect(result).toEqual({
+      ignoredTag: "IgnoreMail",
+      ignoredRuns: 0,
+      routedTag: "RouteMail",
+      route: "purchasing.supply-risk",
+      routedRuns: 1,
+      replayRuns: 0
+    })
+  })
+
   test("deduplicates attention items at the durable repository boundary", async () => {
     await setup()
     const result = await run(Effect.gen(function*() {
