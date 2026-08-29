@@ -54,11 +54,15 @@ The LLM returns evidence IDs, not copies of ERP/email/calendar payloads. Full sn
 For the purchasing path the gate verifies, in code:
 
 - required write scopes;
+- the original PO exists and contains the proposed part;
+- the proposed alternate is not the original PO's incumbent supplier;
 - the alternate supplier exists;
 - supplier approval covers the exact part;
 - an approved price exists;
 - replacement PO value against the effective user's monetary authority;
 - the correct approver when the value exceeds that authority.
+
+The workflow repeats the original-PO and true-alternate checks in its first durable activity, so a direct workflow invocation cannot bypass those business invariants.
 
 At execution time `ToolRuntime` repeats the current scope check. This is important because permissions can be revoked between recommendation/approval and execution.
 
@@ -70,9 +74,9 @@ The approval is bound to a SHA-256 hash of the typed recommendation. Before exec
 
 | Case | Expected behavior |
 | --- | --- |
-| `purchasing-delay-reroute` | enter `purchasing.reroute-po` with the required supply/e-mail evidence |
+| `purchasing-delay-reroute` | enter `purchasing.reroute-po`, select `S-Z` as the actual alternate, and cite the required supply/e-mail evidence |
 | `irrelevant-email-no-action` | refuse to invent a business action from unrelated mail |
-| `unapproved-supplier-is-forbidden` | choose the approved supplier and never emit the tempting `S-Q` supplier |
+| `unapproved-supplier-is-forbidden` | select `S-Z` and never emit the tempting `S-Q` supplier |
 | `quality-hold-reallocate` | propose lot reallocation + production notification |
 | `quality-hold-shortage` | flag shortage when the good lot cannot cover demand |
 
@@ -87,7 +91,7 @@ A live benchmark performs three repetitions per case. Each run stores:
 - estimated model cost under the estimator constants in the runner;
 - creation time.
 
-The scorer is deterministic and checks recommendation type, workflow/action tags, required evidence IDs, and explicitly forbidden strings. It does not grade prose style.
+The scorer is deterministic and checks recommendation type, workflow selection, the expected alternate-supplier parameter for purchasing cases, action tags, required evidence IDs, and explicitly forbidden values. It does not grade prose style.
 
 ```bash
 bun run benchmark
@@ -109,7 +113,7 @@ Exact bit-for-bit LLM output is not promised. Reproducibility here means:
 - stored outputs that can be rescored offline;
 - deterministic policy/execution after the recommendation.
 
-For submission validation, CI intentionally does not require an external model secret. It validates the deterministic harness, authorization, idempotency, workflow replay, and real crash recovery. Live model behavior is exercised with `bun run benchmark` or `bun run demo` when `OPENROUTER_API_KEY` is supplied.
+For submission validation, CI intentionally does not require an external model secret. It validates the deterministic harness, authorization, idempotency, workflow replay, real crash recovery, and full end-to-end demo using the explicitly selected fixture planner. The preserved `artifacts/scenario-a.recorded.ndjson` file is a CI-generated example of that path. Live model behavior is exercised with `bun run benchmark` or `bun run demo` when `OPENROUTER_API_KEY` is supplied.
 
 ## Changing models safely
 
@@ -117,7 +121,7 @@ A model change should be treated as a planner-version/evaluation event, not a tr
 
 1. change `OPENROUTER_MODEL` or the default config;
 2. run the live benchmark three times per case;
-3. inspect any disagreement or forbidden-output failure;
+3. inspect any disagreement, wrong-workflow-parameter, or forbidden-output failure;
 4. keep deterministic policy unchanged unless the business rule itself changed;
 5. update `plannerVersion` when the prompt/schema semantics change;
 6. retain benchmark rows so the old and new planner can be compared.
