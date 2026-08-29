@@ -2,6 +2,7 @@ import * as BunServices from "@effect/platform-bun/BunServices"
 import { Layer } from "effect"
 import { layer as contextResolverLayer } from "../../app/context-resolver-layer"
 import { layer as mailRouteLayer } from "../../app/mail-route-layer"
+import { layer as policyEngineLayer } from "../../app/policy-engine-layer"
 import { layer as recommendationExecutorLayer } from "../../app/recommendation-executor-layer"
 import { layer as toolCatalogLayer } from "../../app/tool-catalog-layer"
 import { layer as supplyContextLayer } from "../../domain/purchasing/context/supply-risk-context"
@@ -46,14 +47,16 @@ const build = (crashLayer: Layer.Layer<CrashControl>) => {
   const contextResolvers = contextResolverLayer.pipe(Layer.provideMerge(domain))
   const mailRoutes = mailRouteLayer.pipe(Layer.provideMerge(domain))
   const catalog = toolCatalogLayer.pipe(Layer.provideMerge(domain))
-  const safety = Layer.mergeAll(toolRuntimeLayer, gateLayer).pipe(Layer.provideMerge(catalog))
+  const policies = policyEngineLayer.pipe(Layer.provideMerge(domain))
+  const safetyDependencies = Layer.mergeAll(catalog, policies)
+  const safety = Layer.mergeAll(toolRuntimeLayer, gateLayer).pipe(Layer.provideMerge(safetyDependencies))
   const engine = workflowEngineLayer.pipe(Layer.provideMerge(safety))
   const workflows = Layer.mergeAll(approvalWorkflowLayer, rerouteWorkflowLayer).pipe(Layer.provideMerge(engine))
   const executor = recommendationExecutorLayer.pipe(Layer.provideMerge(workflows))
   const aiClient = openRouterClientLayer.pipe(Layer.provideMerge(workflows))
   const ai = Layer.mergeAll(plannerLayer, mailTriageLayer).pipe(Layer.provideMerge(aiClient))
   const approvals = Layer.mergeAll(approvalServiceLayer, approvalRoutingLayer).pipe(Layer.provideMerge(ai))
-  const agentDependencies = Layer.mergeAll(approvals, contextResolvers, executor)
+  const agentDependencies = Layer.mergeAll(approvals, contextResolvers, executor, policies)
   const agent = agentHarnessLayer.pipe(Layer.provideMerge(agentDependencies))
   const ingressDependencies = Layer.mergeAll(agent, mailRoutes, ai)
   const ingress = mailIngressLayer.pipe(Layer.provideMerge(ingressDependencies))
