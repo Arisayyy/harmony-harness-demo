@@ -94,11 +94,13 @@ export const layer = Layer.effect(
 
         const outcome = recommendation._tag === "EnterWorkflow"
           ? yield* ReroutePurchaseOrderWorkflow.execute({ runId, principalId: principal.userId, partId: recommendation.parameters.partId, originalPoId: recommendation.parameters.originalPoId, productionOrderId: recommendation.parameters.productionOrderId, alternateSupplierId: recommendation.parameters.alternateSupplierId, quantity: recommendation.parameters.quantity }).pipe(Effect.provideService(WorkflowEngine, engine))
-          : yield* Effect.forEach(recommendation.actions, (action, index) => {
-              const suffix = runId.replace(/-/g, "").slice(0, 10)
-              const input = action._tag === "production.notify" || action._tag === "purchasing.flag-shortage" ? { ...action, messageId: `M-${suffix}-${index}` } : action
-              return runtime.execute({ tool: action._tag, principal, input, idempotencyKey: `${runId}:action:${index}` })
-            }, { concurrency: 1 })
+          : recommendation._tag === "ProposedActions"
+            ? yield* Effect.forEach(recommendation.actions, (action, index) => {
+                const suffix = runId.replace(/-/g, "").slice(0, 10)
+                const input = action._tag === "production.notify" || action._tag === "purchasing.flag-shortage" ? { ...action, messageId: `M-${suffix}-${index}` } : action
+                return runtime.execute({ tool: action._tag, principal, input, idempotencyKey: `${runId}:action:${index}` })
+              }, { concurrency: 1 })
+            : yield* new ApprovalStale({ runId, reason: "A no-action recommendation cannot have an executable approval." })
 
         const completedAt = yield* clock.now
         yield* runs.setStatus(runId, "completed", completedAt, outcome)
