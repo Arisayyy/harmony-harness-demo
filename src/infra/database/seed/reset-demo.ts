@@ -15,6 +15,7 @@ export const resetDemo = Effect.gen(function*() {
     yield* sql`DELETE FROM approvals`
     yield* sql`DELETE FROM agent_runs`
     yield* sql`DELETE FROM attention_items`
+    yield* sql`DELETE FROM event_receipts`
     yield* sql`DELETE FROM calendar_events`
     yield* sql`DELETE FROM mail_messages`
     yield* sql`DELETE FROM quality_lots`
